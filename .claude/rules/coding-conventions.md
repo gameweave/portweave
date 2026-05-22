@@ -54,3 +54,15 @@ The flat config at `eslint.config.ts` pulls in:
 - Perfectionist sort rules from `config/eslint/perfectionist-rules.ts`
 
 Run `npm run lint` to enforce, `npm run lint:fix` to auto-fix.
+
+## Perfectionist alphabetizes — spec examples will be re-sorted
+
+`perfectionist` (see [config/eslint/perfectionist-rules.ts](../../config/eslint/perfectionist-rules.ts)) sorts the following ascending-natural on commit:
+
+- Object literal and object-type properties (`{ error, ok }`, not `{ ok, error }`)
+- Union and intersection type arms (`{ ok: false } | { ok: true }`)
+- Named imports and named exports (`{ andThen, err, ok, type Result }`)
+- Top-level `export const` / `export function` / `export type` declarations within a file
+- `enum` members, `interface` members, `switch` cases, `Map` entries
+
+Specs and design docs sometimes show examples in "natural reading order" (success arm first, then failure arm; `Result` declared before the helpers that reference it). On commit, perfectionist will re-sort them alphabetically. Don't read the reorder as drift from the spec — the structural shape is unchanged.

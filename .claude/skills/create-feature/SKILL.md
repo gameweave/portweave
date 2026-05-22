@@ -1,42 +1,89 @@
 ---
 name: create-feature
-description: End-to-end composite skill for shipping a new Portweave feature — drafts the spec, gets approval, then implements. Use when the user says "add feature X" or "let's ship X" without first writing a spec. Delegates to create-spec for the spec draft and execute-spec for implementation.
+description: Draft a per-feature what/why document at .ai/features/<slug>/<slug>.md. Use when the user wants to define a new feature's motivation and scope before writing a spec. Stops at the feature doc — implementation specs and code are separate skills (create-spec, execute-spec).
 ---
 
 # create-feature
 
 ## When to invoke
 
-Trigger when the user wants a feature shipped end-to-end and hasn't separately invoked `create-spec` or `execute-spec`. Examples:
+Trigger when the user wants to capture the **what and why** of a new feature
+before any implementation planning. Examples:
 
-- "Let's add live conflict detection to Portweave"
-- "Ship the worktree-detection feature"
-- "Build X"
+- "Let's add a feature for live conflict detection"
+- "Document the worktree-context feature"
+- "Create a feature doc for X"
+- "Add feature X" (default to a feature doc unless the user explicitly wants a
+  spec or implementation)
 
-If the user has already written a spec, route directly to `execute-spec` instead.
-If the user only wants the spec (no implementation yet), route to `create-spec`.
+If the user wants the implementation plan, route to `create-spec` instead.
+If the user wants to ship the implementation, route to `execute-spec`.
 
-## Procedure
+## What to produce
 
-This is a thin orchestrator over the two underlying skills:
+A single markdown file at `.ai/features/<slug>/<slug>.md` following the
+template in [.ai/features/README.md](../../../.ai/features/README.md).
 
-### Phase 1 — Spec (via create-spec)
+Required frontmatter:
 
-1. Invoke `create-spec` with the user's feature description.
-2. Draft the spec under `.ai/specs/<kebab-case-feature>.md`.
-3. **Hand back to the user for review.** Do not proceed without explicit approval.
+- `name`: kebab-case slug
+- `title`: human-readable feature name
+- `roadmap_ref`: link back to the roadmap section if one exists
+- `status`: always starts as `drafted`
 
-### Phase 2 — Implementation (via execute-spec)
+Required sections:
 
-4. Once the user marks the spec `Status: approved`, invoke `execute-spec`.
-5. Follow the full execute-spec procedure (tests first, dev-workflow gate, status update on ship).
+1. **Why** — plain-English motivation, beneficiaries
+2. **Parity rows** — DESIGN.md §7.2 row numbers, if applicable
+3. **Dependencies** — links to upstream feature docs
+4. **Boardflip reference** — relevant files in `reference/boardflip/`
+5. **Scope** — what's in / what's out at v0
+6. **Acceptance criteria sketch** — observable behaviors (not test code)
+7. **Open questions** — items that need resolving during the spec phase
 
-## Approval gate (critical)
+## How to drive the conversation
 
-Never bypass the user's approval between phases. The point of the spec is to align _before_ code lands. If the user pushes back on the spec, iterate in Phase 1 — do not start implementation with unresolved questions.
+1. **Read [.ai/DESIGN.md](../../../.ai/DESIGN.md)** so the feature doc aligns
+   with the resolved design decisions.
+2. Confirm with the user (or infer from the roadmap section if one is
+   supplied): feature name, slug, scope boundaries, parity row mapping.
+3. Identify which boardflip reference files in
+   [reference/boardflip/](../../../reference/) inspire the shape. Cite their
+   patterns without proposing concrete implementation details.
+4. Create the directory `.ai/features/<slug>/` if missing, then write
+   `.ai/features/<slug>/<slug>.md`.
+5. Lean on existing decisions from `.ai/decision-log.md` rather than
+   re-litigating.
+6. Transcribe open questions rather than resolving them — they belong in the
+   spec phase.
 
-## When to break out of the composite
+## Quality bar
 
-- If the user redirects mid-spec ("actually, let's just hack this in"), route to direct implementation without a spec. Sometimes a feature genuinely doesn't warrant the ceremony — defer to the user.
-- If the spec reveals the feature is much bigger than expected, surface that explicitly and offer to split into multiple specs (numbered: `01-foo.md`, `02-bar.md`).
-- If acceptance criteria can't be made verifiable, stop. A feature that can't be verified can't be shipped.
+- The "Why" section reads as motivation, not implementation detail. Bad:
+  "loads `portweave.config.json` with zod." Good: "users get conflict-free
+  ports across multiple worktrees without manually wiring up env vars."
+- Acceptance-criteria sketches describe **observable behavior**, not file
+  paths or function signatures. Those live in the spec.
+- Open questions stay open. The point of this skill is to capture what we
+  don't yet know, not paper over it.
+- One feature doc = one cohesive capability. If the doc grows past
+  ~150 lines, the feature is probably two features.
+
+## Naming
+
+Use the feature's noun/verb, not its acceptance criteria. Good:
+`worktree-context.md`, `port-allocator.md`. Bad:
+`detect-git-worktrees-and-fallback-to-cwd.md`. The folder and inside-file
+name match: `.ai/features/<slug>/<slug>.md`.
+
+## What this skill does NOT do
+
+- Write or edit any code under `src/`, `scripts/`, or `config/`
+- Create or modify spec documents under `.ai/specs/`
+- Run `npm run dev-workflow`
+- Update `.ai/decision-log.md`
+- Bypass into spec or implementation flow — if the user asks for those, route
+  to `create-spec` or `execute-spec` after the feature doc lands
+
+Spec drafting and implementation are deliberately separate skills so the
+feature doc can be reviewed and iterated on its own.
