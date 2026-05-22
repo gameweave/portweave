@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# Lightweight pre-commit: fast checks only. Heavy checks (dupcheck, tests,
+# similarity, deadcode) run via `npm run dev-workflow` before push and in CI.
+
+npm run format:check && npm run lint && npm run typecheck

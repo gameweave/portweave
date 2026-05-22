@@ -1,0 +1,54 @@
+# Portweave Decision Log
+
+Captures every decision from the design brainstorm and subsequent conversations — explicit Q/A answers and architectural assertions accepted in-flight. Numbered for cross-reference with [DESIGN.md](./DESIGN.md) §9 (narrative recap).
+
+When a future decision overturns one of these rows, append a new dated note rather than rewriting history.
+
+| #   | Topic                                                 | Decision                                                                                                                               | Notes / Rationale                                                                                                                                                                                                      |
+| --- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Where the project lives                               | Standalone OSS repo under the **Gameweave** organization (`gameweave/portweave`)                                                       | Boardflip is the reference/testing ground; design captured in this repo's `.ai/` and `reference/`. Original prompt + final session call.                                                                               |
+| 2   | Form factor / ecosystem fit                           | npm package with CLI binary — **not** pnpm-plugin-only                                                                                 | Language-agnostic CLI maximizes audience (Python/Rust/Go projects benefit too); pnpm-only would shrink it for no gain.                                                                                                 |
+| 3   | Architecture style                                    | Stateless, file-locked JSON registry — **no daemon**                                                                                   | Boardflip prior art proves stateless is sufficient. Daemon adds lifecycle/cleanup complexity not justified by v0 needs.                                                                                                |
+| 4   | Allocation scope                                      | **Machine-wide pool** (vs. per-project offset or hybrid)                                                                               | Solves cross-project collisions, which is the growing case with multi-repo agent workflows. Simpler mental model than hybrid.                                                                                          |
+| 5   | How projects consume allocated ports                  | Wrapper CLI primary; **always** writes `.portweave/current.env` as side effect                                                         | Devil's-advocate review surfaced Docker Compose, IDE run configs, and Vite/Next config-load timing as cases where wrapper alone fails. Always-write-env-file is free given the same code path.                         |
+| 6   | JS library import API (`import { ports } from '...'`) | **Deferred to post-v0**                                                                                                                | Only benefits JS projects (couples to runtime); env-var injection + `.env` file covers common cases. Open per §6.4 — Brian may pull forward for Vite/Next config-load timing.                                          |
+| 7   | v0 scope cap                                          | **Boardflip parity** — v0 must be adoptable as a drop-in replacement, including all 14 capabilities in DESIGN.md §7.2                  | Revised after initial "defer" answer. Honest estimate: 2–3 weeks for a single dev with tests + docs. The "small and easy" expectation no longer applies.                                                               |
+| 8   | Registry location                                     | `~/.config/portweave/registry.json` (XDG-standard)                                                                                     | Single-user, machine-wide visibility, no per-project pollution. Enables `portweave list` across all projects on a machine.                                                                                             |
+| 9   | Allocation mechanism                                  | Machine-wide pool with per-worktree block allocation                                                                                   | Strict superset of boardflip's `base + offset*100`: identical stickiness and all-services-move-together, plus cross-project collision protection. Boardflip's 99-offset cap goes away.                                 |
+| 10  | Config style                                          | **Named services is the floor** (required for parity); whether to layer auto-detect or zero-config on top is **open for Brian (§6.1)** | Parity goal kills "zero-config-anonymous" and "pure auto-detect" as standalone options — boardflip needs explicit env var names and constructed URLs.                                                                  |
+| 11  | Package name                                          | **Portweave**                                                                                                                          | Chosen over portsbook (sports→ports wordplay, strong but generic-sounding in dev tools namespace) and portiva (brandable but no descriptive hook). Portweave threads naturally into the Gameweave organization brand.  |
+| 12  | License                                               | **Deferred to Brian**                                                                                                                  | Likely MIT (dominant for OSS dev tools), but `LICENSE` ships as TODO at v0.                                                                                                                                            |
+| 13  | Extract from boardflip or write fresh                 | **Write fresh**, using boardflip as the design blueprint                                                                               | Per-project-offset model differs from machine-wide-pool mechanism; extract-and-rename would inherit a model that needs replacing anyway. Boardflip source captured at [reference/boardflip/](../reference/boardflip/). |
+| 14  | Drop-in adoption by boardflip                         | **Yes** — explicit verification criterion for v0 (§7.3)                                                                                | Boardflip migrates by deleting worktree-context-\* files, adding `portweave.config.json`, and invoking `portweave run`. All e2e tests must still pass.                                                                 |
+| 15  | Distribution / publishing org                         | **Gameweave organization, OSS publication**                                                                                            | Strategic position: dev-workflow wedge with potential expansion into local-dev coordination (DNS, sync, agent orchestration). OSS core + future paid pro/team/enterprise tiers feasible per §8 roadmap.                |
+| 16  | Repo directory location                               | `~/Documents/workspace/portweave/` (sibling to existing `boardflip/`)                                                                  | Org-dir restructure (`~/Documents/Gameweave/`) deferred — symbolic gain not worth risk to boardflip's active worktrees and absolute-path-keyed worktree registry. Separate session if revisited.                       |
+
+---
+
+## Strategic position (informs §8 and future commercialization discussions)
+
+If Portweave becomes ubiquitous, the position unlocks several adjacent products:
+
+| Adjacent feature                   | Description                                                                                                    | Monetization fit              |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| **Local dev DNS**                  | `http://api.boardflip.dev` resolves to the right localhost port for the current worktree.                      | Free OSS or paid pro          |
+| **Cross-project discovery**        | Agent or service A in repo X looks up service B in repo Y on the same machine.                                 | OSS core                      |
+| **Team-shared registries**         | "Brian's local stack is reachable at these tunneled endpoints." Tailscale-adjacent.                            | **Paid team tier**            |
+| **Web UI / dashboard**             | "What's running on my machine? Click to open."                                                                 | Paid pro tier                 |
+| **Service-definition marketplace** | "Install the Postgres preset," "install the Redis cluster preset."                                             | Marketplace economics         |
+| **Agent orchestration substrate**  | Coding agents spawn/discover/cleanup dev servers via Portweave. Becomes the de facto agent coordination layer. | OSS core; possibly enterprise |
+| **Enterprise dev environments**    | Replaces the "developer onboarding wiki." Compliance, audit, SSO.                                              | **Enterprise SaaS**           |
+| **IDE plugins**                    | VS Code / JetBrains panels for "what's running, click to open."                                                | Paid pro                      |
+
+**Monetization playbook (proven elsewhere — Sentry, Vercel, Tailscale, Linear):**
+
+- Free OSS core (CLI, registry, single-machine allocation) drives mass adoption.
+- Pro tier ($10–20/dev/mo): Web UI, cross-machine sync, dev DNS, IDE plugins, telemetry.
+- Team tier ($30–50/dev/mo): Shared service definitions, team-wide observability, audit logs.
+- Enterprise: SSO, on-prem registry server, compliance certifications.
+
+**Honest caveats:**
+
+- Local-dev tools have weak enterprise willingness-to-pay unless they hit team-scale pain. Saving an individual dev 10 minutes a week doesn't sell licenses; saving 50 devs from collisions in a shared remote dev cluster does.
+- The Pro/Team monetization only kicks in once the adjacent features (DNS, sync, observability) exist — significant additional work beyond v0.
+- The OSS wedge has to win first. If the CLI isn't ubiquitous, none of the adjacent products have a customer base. v0 quality matters strategically, not just functionally.

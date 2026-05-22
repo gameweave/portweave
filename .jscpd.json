@@ -1,0 +1,24 @@
+{
+  "threshold": 1.05,
+  "minLines": 5,
+  "minTokens": 50,
+  "format": ["typescript", "tsx", "css"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.react-router/**",
+    "**/coverage/**",
+    "**/reports/**",
+    "**/*.d.ts",
+    "**/cdk.out/**",
+    ".worktrees/**",
+    ".claude/**",
+    "examples/**",
+    "reference/**"
+  ],
+  "reporters": ["console", "json"],
+  "output": "reports/jscpd",
+  "absolute": true,
+  "gitignore": true
+}

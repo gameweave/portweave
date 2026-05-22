@@ -1,0 +1,26 @@
+node_modules/
+dist/
+build/
+coverage/
+reports/
+
+# Runtime allocation artifacts (Portweave's own output)
+.portweave/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Tool caches
+.ai/tool-results/
+.ai/sessions/
+
+# OS / editor noise
+.DS_Store
+*.log
+.vscode/
+.idea/
+
+# TypeScript build info
+*.tsbuildinfo
