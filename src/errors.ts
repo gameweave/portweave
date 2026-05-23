@@ -4,8 +4,10 @@ export const PW_ERROR_CODES = {
   ALLOCATION_EXHAUSTED: 'PW0401',
   CONFIG_INVALID: 'PW0102',
   CONFIG_MISSING: 'PW0101',
+  NOT_A_GIT_REPO: 'PW0201',
   REGISTRY_CORRUPT: 'PW0302',
   REGISTRY_LOCKED: 'PW0301',
+  WORKTREE_OFFSET_INVALID: 'PW0202',
 } as const satisfies Record<string, `PW${number}`>
 
 export type PortweaveErrorCode =

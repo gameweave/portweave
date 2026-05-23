@@ -1,6 +1,6 @@
 # Worktree context, namespace derivation, and overrides
 
-**Status:** approved
+**Status:** shipped
 **Owner:** TBD
 **Feature doc:** [.ai/features/worktree-context/worktree-context.md](../../features/worktree-context/worktree-context.md)
 **Decision-log rows:** [#9](../../decision-log.md) (allocation mechanism — keyed per-worktree), [#17](../../decision-log.md) (PW number-range scheme — this spec consumes the `PW0201–0299` block).
