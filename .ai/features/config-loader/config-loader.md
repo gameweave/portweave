@@ -2,7 +2,7 @@
 name: config-loader
 title: Config loader and anonymous mode
 roadmap_ref: .ai/roadmaps/v0-roadmap.md#2-config-loader--portweaveconfigjson-schema--zero-config-anonymous-mode
-status: drafted
+status: scoped
 ---
 
 # Config loader and anonymous mode

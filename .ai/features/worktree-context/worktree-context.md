@@ -2,7 +2,7 @@
 name: worktree-context
 title: Worktree context, namespace derivation, and overrides
 roadmap_ref: .ai/roadmaps/v0-roadmap.md#3-worktree-context--git-detection-namespace-derivation-manual-overrides
-status: drafted
+status: scoped
 ---
 
 # Worktree context, namespace derivation, and overrides

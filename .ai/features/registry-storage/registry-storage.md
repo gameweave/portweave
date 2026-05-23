@@ -2,7 +2,7 @@
 name: registry-storage
 title: Registry storage, locking, and stale pruning
 roadmap_ref: .ai/roadmaps/v0-roadmap.md#4-registry-storage--registryjson-io-directory-mutex-locking-atomic-writes-stale-pruning
-status: drafted
+status: scoped
 ---
 
 # Registry storage, locking, and stale pruning
