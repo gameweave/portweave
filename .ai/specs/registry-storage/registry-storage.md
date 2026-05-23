@@ -1,6 +1,6 @@
 # Registry storage, locking, and stale pruning
 
-**Status:** approved
+**Status:** shipped
 **Owner:** TBD
 **Feature doc:** [.ai/features/registry-storage/registry-storage.md](../../features/registry-storage/registry-storage.md)
 **Decision-log rows:** [#3](../../decision-log.md) (stateless file-locked, no daemon), [#4](../../decision-log.md) / [#9](../../decision-log.md) (machine-wide pool — no per-project offset field), [#8](../../decision-log.md) (XDG registry path), [#17](../../decision-log.md) (PW error-code numbering — this feature is the first user of the `PW03xx` registry block)
