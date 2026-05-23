@@ -1,6 +1,6 @@
 # Config loader and anonymous mode
 
-**Status:** approved
+**Status:** shipped
 **Owner:** TBD
 **Feature doc:** [.ai/features/config-loader/config-loader.md](../../features/config-loader/config-loader.md)
 **Decision-log rows:** Implements DESIGN.md row #10 (config style — named-services floor) and row #5 (consumption — `portweave run` reads config). Resolves DESIGN.md §6.1 by adopting option (d) named-services plus option (a) zero-config anonymous (per v0 roadmap §2). No new decision-log row required.
