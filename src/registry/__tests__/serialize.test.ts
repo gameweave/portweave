@@ -19,6 +19,7 @@ const sampleEntry: RegistryEntry = {
   key: {
     gitCommonDir: '/Users/x/repos/foo/.git',
     namespace: 'main',
+    offsetOverride: null,
     worktreeRoot: '/Users/x/repos/foo',
   },
   lastUsedAt: '2026-05-23T17:42:11.000Z',
@@ -136,6 +137,7 @@ describe('loadRegistryFile', () => {
       key: {
         gitCommonDir: null,
         namespace: 'main',
+        offsetOverride: null,
         worktreeRoot: '/some/dir',
       },
     }
@@ -171,6 +173,7 @@ describe('serializeRegistry', () => {
       key: {
         gitCommonDir: null,
         namespace: 'beta',
+        offsetOverride: null,
         worktreeRoot: '/same',
       },
       namespace: 'beta',
@@ -180,6 +183,7 @@ describe('serializeRegistry', () => {
       key: {
         gitCommonDir: null,
         namespace: 'alpha',
+        offsetOverride: null,
         worktreeRoot: '/same',
       },
       namespace: 'alpha',

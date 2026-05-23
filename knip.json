@@ -3,6 +3,5 @@
   "entry": ["src/index.ts", "src/config/index.ts", "scripts/bin/*.ts"],
   "project": ["src/**/*.ts", "scripts/**/*.ts", "config/**/*.ts"],
   "ignore": ["scripts/src/tasks/**", "scripts/src/utils/ci-workflow-parser.ts"],
-  "ignoreBinaries": ["husky", "tsc", "tsx", "vitest"],
-  "ignoreDependencies": ["constants-check", "husky", "jscpd", "prettier", "tsx", "zod"]
+  "ignoreDependencies": ["constants-check", "jscpd", "prettier"]
 }

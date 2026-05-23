@@ -44,6 +44,9 @@
     "task:check-complete": "tsx scripts/bin/task-check-complete.ts",
     "prepare": "husky"
   },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@stylistic/eslint-plugin": "^5.10.0",

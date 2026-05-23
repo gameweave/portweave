@@ -6,7 +6,12 @@ import { pruneStaleEntries } from '../prune.ts'
 import type { RegistryEntry } from '../types.ts'
 
 const makeEntry = (worktreeRoot: string): RegistryEntry => ({
-  key: { gitCommonDir: null, namespace: 'main', worktreeRoot },
+  key: {
+    gitCommonDir: null,
+    namespace: 'main',
+    offsetOverride: null,
+    worktreeRoot,
+  },
   lastUsedAt: '2026-05-23T17:42:11.000Z',
   namespace: 'main',
   ports: { api: 30100 },

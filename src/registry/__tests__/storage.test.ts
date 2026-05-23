@@ -22,6 +22,7 @@ afterEach(async () => {
 const makeKey = (worktreeRoot: string): AllocationKey => ({
   gitCommonDir: null,
   namespace: 'main',
+  offsetOverride: null,
   worktreeRoot,
 })
 

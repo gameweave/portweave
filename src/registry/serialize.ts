@@ -31,7 +31,7 @@ function parseKey(raw: unknown): AllocationKey | null {
   if (gitCommonDir !== null && typeof gitCommonDir !== 'string') {
     return null
   }
-  return { gitCommonDir, namespace, worktreeRoot }
+  return { gitCommonDir, namespace, offsetOverride: null, worktreeRoot }
 }
 
 function parsePorts(raw: unknown): null | Readonly<Record<string, number>> {

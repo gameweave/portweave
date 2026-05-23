@@ -1,12 +1,6 @@
-// Local shadow of worktree-context's AllocationKey. The canonical
-// definition will live at `src/worktree/key.ts` once Feature #3 ships;
-// this file is deleted and imports are flipped during reconciliation.
+import type { AllocationKey } from '../worktree/key.ts'
 
-export interface AllocationKey {
-  readonly gitCommonDir: null | string
-  readonly namespace: string
-  readonly worktreeRoot: string
-}
+export type { AllocationKey }
 
 export interface RegistryEntry {
   readonly key: AllocationKey

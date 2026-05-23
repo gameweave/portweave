@@ -14,7 +14,12 @@ async function main(): Promise<void> {
     process.exit(2)
   }
   const entry: RegistryEntry = {
-    key: { gitCommonDir: null, namespace: 'main', worktreeRoot },
+    key: {
+      gitCommonDir: null,
+      namespace: 'main',
+      offsetOverride: null,
+      worktreeRoot,
+    },
     lastUsedAt: new Date().toISOString(),
     namespace: 'main',
     ports: { api: port },
