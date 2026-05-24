@@ -24,6 +24,11 @@ describe('resolveRegistryPath', () => {
     expect(paths.registryDir).toBe(join(homedir(), '.config', 'portweave'))
   })
 
+  it('falls back to ~/.config when XDG_CONFIG_HOME is a relative path', () => {
+    const paths = resolveRegistryPath({ XDG_CONFIG_HOME: 'relative/path' })
+    expect(paths.registryDir).toBe(join(homedir(), '.config', 'portweave'))
+  })
+
   it('lock and registry files nest under the same directory', () => {
     const paths = resolveRegistryPath({ XDG_CONFIG_HOME: '/x' })
     expect(paths.lockDir.startsWith(paths.registryDir)).toBe(true)

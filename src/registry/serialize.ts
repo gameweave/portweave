@@ -31,6 +31,7 @@ function parseKey(raw: unknown): AllocationKey | null {
   if (gitCommonDir !== null && typeof gitCommonDir !== 'string') {
     return null
   }
+  // offsetOverride is not persisted — always null on deserialization
   return { gitCommonDir, namespace, offsetOverride: null, worktreeRoot }
 }
 

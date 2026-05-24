@@ -57,8 +57,13 @@ async function tryRemoveStaleLock(
     if (Date.now() - info.mtimeMs > staleMs) {
       await rm(lockDir, { force: true, recursive: true })
     }
-  } catch {
-    await rm(lockDir, { force: true, recursive: true })
+  } catch (caught: unknown) {
+    // pw-allow-swallow: ENOENT means the lock vanished concurrently — no action needed.
+    // Any other error is unexpected; remove forcefully as best-effort and let the
+    // retry loop surface the failure.
+    if (getErrorCode(caught) !== 'ENOENT') {
+      await rm(lockDir, { force: true, recursive: true })
+    }
   }
 }
 

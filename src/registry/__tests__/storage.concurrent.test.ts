@@ -1,5 +1,6 @@
 import { fork } from 'node:child_process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -8,6 +9,9 @@ import {
   CONCURRENT_WRITER_PATH,
 } from '../storage.concurrent.ts'
 import type { RegistryEntry } from '../types.ts'
+
+const _require = createRequire(import.meta.url)
+const TSX_PATH: string = _require.resolve('tsx/cli')
 
 let configDir: string
 let workerRoots: string[] = []
@@ -42,7 +46,7 @@ function spawnWorker(
         PW_TEST_ROOT: worktreeRoot,
         PW_TEST_XDG: configDir,
       },
-      execArgv: ['--import', 'tsx'],
+      execArgv: ['--import', TSX_PATH],
       silent: true,
     })
     const stderr: Buffer[] = []

@@ -231,6 +231,18 @@ describe('withRegistry edge cases', () => {
     }
   })
 
+  it('rejects the caller and releases the lock when fn throws synchronously', async () => {
+    const registryDir = join(configDir, 'portweave')
+    const lockPath = join(registryDir, 'registry.lock')
+    await expect(
+      withRegistry(() => {
+        throw new Error('sync boom')
+      }, env),
+    ).rejects.toThrow('sync boom')
+    // Lock must be released — the directory should not exist after the throw.
+    expect(existsSync(lockPath)).toBe(false)
+  })
+
   it('returns PW0301 when the lock cannot be acquired in time', async () => {
     const registryDir = join(configDir, 'portweave')
     await mkdir(registryDir, { recursive: true })

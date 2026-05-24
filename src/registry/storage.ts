@@ -35,6 +35,7 @@ interface MutableHandleState {
 
 function buildHandle(state: MutableHandleState): WithRegistryHandle {
   return {
+    /** Insertion-ordered, not sort-ordered. Callers that need sorted order must sort themselves. */
     get entries(): readonly RegistryEntry[] {
       return state.entries
     },
@@ -92,7 +93,7 @@ export async function withRegistry<T>(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Result<T, PortweaveError>> {
   const paths = resolveRegistryPath(env)
-  await mkdir(paths.registryDir, { recursive: true })
+  await mkdir(paths.registryDir, { mode: 0o700, recursive: true })
 
   const lockResult = await withLock(
     paths.lockDir,

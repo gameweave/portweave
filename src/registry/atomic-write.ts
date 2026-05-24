@@ -8,7 +8,7 @@ export async function atomicWriteRegistry(
   contents: string,
 ): Promise<void> {
   const tempPath = `${path}.tmp.${process.pid.toString()}.${Date.now().toString()}`
-  await writeFile(tempPath, contents, 'utf-8')
+  await writeFile(tempPath, contents, { encoding: 'utf-8', mode: 0o600 })
   await rename(tempPath, path)
 }
 
