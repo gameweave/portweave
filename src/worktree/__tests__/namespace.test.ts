@@ -46,6 +46,12 @@ describe('deriveNamespace', () => {
     expect(first).toBe(second)
   })
 
+  it('produces the same hash for a path with and without trailing slash', () => {
+    const withSlash = deriveNamespace('/tmp/foo/', '/tmp/main')
+    const withoutSlash = deriveNamespace('/tmp/foo', '/tmp/main')
+    expect(withSlash).toBe(withoutSlash)
+  })
+
   it('normalizes both paths before comparing for the main short-circuit', () => {
     expect(deriveNamespace('/tmp/foo/', '/tmp/foo')).toBe(MAIN_NAMESPACE)
     expect(deriveNamespace('/tmp/foo/./.', '/tmp/foo')).toBe(MAIN_NAMESPACE)
