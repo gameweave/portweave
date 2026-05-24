@@ -1,3 +1,6 @@
-// Portweave library entry point.
-// Implementation lands as features are specified under .ai/specs/.
-export {}
+export {
+  PortweaveError,
+  type PortweaveErrorCode,
+  PW_ERROR_CODES,
+} from './errors.ts'
+export { andThen, err, ok, type Result } from './result.ts'
