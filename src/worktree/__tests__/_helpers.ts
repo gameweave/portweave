@@ -10,6 +10,7 @@ export interface TempGitRepo {
 
 export function createTempGitRepo(prefix = 'portweave-worktree-'): TempGitRepo {
   const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)))
+  // requires git >= 2.28 for --initial-branch flag
   runGit(['init', '--initial-branch=main', root], root)
   runGit(['config', 'user.email', 'test@portweave.local'], root)
   runGit(['config', 'user.name', 'Portweave Test'], root)

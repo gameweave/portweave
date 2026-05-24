@@ -17,12 +17,13 @@ const SURROUNDING_DASHES = /^-+|-+$/g
 const OFFSET_LITERAL = /^\d+$/
 
 export function deriveNamespace(currentRoot: string, mainRoot: string): string {
-  if (normalizePath(currentRoot) === normalizePath(mainRoot)) {
+  const normalized = normalizePath(currentRoot)
+  if (normalized === normalizePath(mainRoot)) {
     return MAIN_NAMESPACE
   }
 
-  const slug = sanitizeNamespace(basename(currentRoot))
-  return `${slug}-${hashPath(currentRoot)}`
+  const slug = sanitizeNamespace(basename(normalized))
+  return `${slug}-${hashPath(normalized)}`
 }
 
 export function namespaceOverride(): null | string {
@@ -49,7 +50,8 @@ export function parseExplicitOffset(): Result<null | number, PortweaveError> {
   }
 
   const offset = Number.parseInt(raw.trim(), DECIMAL_RADIX)
-  if (!Number.isSafeInteger(offset) || offset < 0) {
+  // guard against digit strings exceeding Number.MAX_SAFE_INTEGER
+  if (!Number.isSafeInteger(offset)) {
     return err(
       new PortweaveError(
         PW_ERROR_CODES.WORKTREE_OFFSET_INVALID,

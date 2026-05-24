@@ -10,10 +10,15 @@ export interface GitWorktreeContext {
   worktreeRoots: string[]
 }
 
+// Strip git-passthrough vars that could alter git's behavior; we assume a
+// trusted developer machine but defend against accidental envrc pollution.
 const GIT_PASSTHROUGH_KEYS_TO_STRIP = [
+  'GIT_CONFIG_GLOBAL',
   'GIT_DIR',
+  'GIT_EXEC_PATH',
   'GIT_INDEX_FILE',
   'GIT_PREFIX',
+  'GIT_SSH_COMMAND',
   'GIT_WORK_TREE',
 ] as const
 
