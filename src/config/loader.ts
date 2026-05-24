@@ -24,29 +24,29 @@ function describe(caught: unknown): string {
   return caught instanceof Error ? caught.message : String(caught)
 }
 
-interface ReadOutcome {
-  contents?: string
-  missing?: true
-  problem?: PortweaveError
-}
+type ReadOutcome =
+  | { contents: string; tag: 'ok' }
+  | { problem: PortweaveError; tag: 'error' }
+  | { tag: 'missing' }
 
 async function readConfigFile(absolutePath: string): Promise<ReadOutcome> {
   try {
     const contents = await readFile(absolutePath, 'utf8')
-    return { contents }
+    return { contents, tag: 'ok' }
   } catch (caught: unknown) {
     if (
       caught instanceof Error &&
       'code' in caught &&
       (caught as { code: unknown }).code === 'ENOENT'
     ) {
-      return { missing: true }
+      return { tag: 'missing' }
     }
     return {
       problem: new PortweaveError(
         PW_ERROR_CODES.CONFIG_INVALID,
         `failed to read ${absolutePath}: ${describe(caught)}`,
       ),
+      tag: 'error',
     }
   }
 }
@@ -73,7 +73,7 @@ export async function loadConfig(
 ): Promise<Result<Config, PortweaveError>> {
   const absolutePath = resolveConfigPath(cwd, opts?.configPath)
   const outcome = await readConfigFile(absolutePath)
-  if (outcome.missing === true) {
+  if (outcome.tag === 'missing') {
     return err(
       new PortweaveError(
         PW_ERROR_CODES.CONFIG_MISSING,
@@ -81,11 +81,10 @@ export async function loadConfig(
       ),
     )
   }
-  if (outcome.problem !== undefined) {
+  if (outcome.tag === 'error') {
     return err(outcome.problem)
   }
-  const contents = outcome.contents ?? ''
-  const parsed = parseJson(contents, absolutePath)
+  const parsed = parseJson(outcome.contents, absolutePath)
   if (!parsed.ok) {
     return parsed
   }

@@ -186,7 +186,7 @@ describe('loadConfig — failure paths', () => {
   })
 
   it('returns CONFIG_INVALID when the file is unreadable', async () => {
-    if (process.platform === 'win32') {
+    if (process.platform === 'win32' || process.getuid?.() === 0) {
       return
     }
     const target = join(state.tempDir, DEFAULT_CONFIG_NAME)
