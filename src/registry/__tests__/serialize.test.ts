@@ -159,6 +159,19 @@ describe('serializeRegistry', () => {
   })
 
   it('serialized records have no offset field (schema constraint)', () => {
+    // Type-level: the persisted key shape must not include offsetOverride
+    interface SerializedKey {
+      gitCommonDir: null | string
+      namespace: string
+      worktreeRoot: string
+    }
+    type _NoOffset =
+      keyof SerializedKey extends Exclude<keyof SerializedKey, 'offsetOverride'>
+        ? true
+        : never
+    const _assertNoOffset: _NoOffset = true
+    void _assertNoOffset
+
     const out = serializeRegistry({ entries: [sampleEntry], version: 1 })
     expect(out.includes('offset')).toBe(false)
     const parsed = JSON.parse(out) as { entries: Record<string, unknown>[] }

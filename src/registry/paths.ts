@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 
 export interface RegistryPaths {
   readonly lockDir: string
@@ -10,10 +10,9 @@ export interface RegistryPaths {
 export function resolveRegistryPath(
   env: NodeJS.ProcessEnv = process.env,
 ): RegistryPaths {
+  const xdg = env.XDG_CONFIG_HOME
   const configHome =
-    env.XDG_CONFIG_HOME && env.XDG_CONFIG_HOME.length > 0
-      ? env.XDG_CONFIG_HOME
-      : join(homedir(), '.config')
+    xdg && xdg.length > 0 && isAbsolute(xdg) ? xdg : join(homedir(), '.config')
   const registryDir = join(configHome, 'portweave')
   return {
     lockDir: join(registryDir, 'registry.lock'),

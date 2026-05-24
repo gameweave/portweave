@@ -8,9 +8,10 @@ import { withLock } from '../lock.ts'
 
 let dir: string
 let lockDir: string
-const originalEnv = process.env.PORTWEAVE_LOCK_TIMEOUT_MS
+let originalEnv: string | undefined
 
 beforeEach(async () => {
+  originalEnv = process.env.PORTWEAVE_LOCK_TIMEOUT_MS
   dir = await mkdtemp(join(tmpdir(), 'pw-lock-'))
   lockDir = join(dir, 'registry.lock')
 })
