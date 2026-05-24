@@ -76,6 +76,18 @@ describe('validateAndNormalizeConfig — happy path', () => {
         'ws',
       ]),
     )
+    // kinesis pair share a group; dynamodb pair share a group
+    expect(result.value.groups).toStrictEqual({
+      dynamodb: ['dynamodb', 'dynamodb-admin'],
+      kinesis: ['kinesis', 'kinesis-tls'],
+    })
+    // api and ws have discoveryEnv populated
+    const api = result.value.services.find((s) => s.name === 'api')
+    const ws = result.value.services.find((s) => s.name === 'ws')
+    expect(Object.keys(api?.discoveryEnv ?? {})).not.toHaveLength(0)
+    expect(Object.keys(ws?.discoveryEnv ?? {})).not.toHaveLength(0)
+    // envVar values are correct (spot-check api)
+    expect(api?.envVar).toBe('API_PORT')
   })
 
   it('derives the groups inverted index in source order', () => {

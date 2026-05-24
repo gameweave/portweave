@@ -142,6 +142,9 @@ function checkDiscoveryEnv(
   }
 }
 
+// SERVICE_NAME_PATTERN (^[a-z][a-z0-9-]*$) is load-bearing for stable service
+// ordering: V8 reorders purely-numeric keys ahead of other keys, so requiring
+// names to start with [a-z] ensures JSON.parse insertion-order is preserved.
 function normalize(raw: RawConfigFile, ctx: NormalizationContext): Config {
   const services: ServiceSpec[] = Object.entries(raw.services).map(
     ([name, entry]) => ({

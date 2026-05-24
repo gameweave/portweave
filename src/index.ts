@@ -1,4 +1,11 @@
 export {
+  type Config,
+  loadConfig,
+  type LoadConfigOptions,
+  type ServiceSpec,
+  synthesizeAnonymousConfig,
+} from './config/index.ts'
+export {
   PortweaveError,
   type PortweaveErrorCode,
   PW_ERROR_CODES,
