@@ -15,6 +15,12 @@ export {
   synthesizeAnonymousConfig,
 } from './config/index.ts'
 export {
+  buildEnvMap,
+  evaluateTemplate,
+  type ResolvedEnv,
+  resolveEnv,
+} from './env/index.ts'
+export {
   PortweaveError,
   type PortweaveErrorCode,
   PW_ERROR_CODES,

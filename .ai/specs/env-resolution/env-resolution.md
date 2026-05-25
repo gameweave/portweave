@@ -1,6 +1,6 @@
 # Env-var resolution and .portweave/current.env writer
 
-**Status:** approved
+**Status:** in-progress
 **Owner:** TBD
 **Feature doc:** [.ai/features/env-resolution/env-resolution.md](../../features/env-resolution/env-resolution.md)
 **Decision-log rows:** [#5](../../decision-log.md) (always-write `.portweave/current.env` side effect), [#17](../../decision-log.md) (PW error-code numbering — this feature opens the `PW05xx` env-resolution block)
