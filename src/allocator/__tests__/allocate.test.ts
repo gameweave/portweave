@@ -1,0 +1,289 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { allocate, MAX_PROBE_RETRIES } from '../allocate.ts'
+import { PW_ERROR_CODES } from '../../errors.ts'
+import {
+  addWorktreeDir,
+  bindServerOnPort,
+  cleanupTempDirs,
+  makeAllocationKey,
+  makeAllocatorConfig,
+  makeTempDirs,
+  type TempDirs,
+} from './_helpers.ts'
+
+let dirs: TempDirs
+
+beforeEach(async () => {
+  dirs = await makeTempDirs()
+})
+
+afterEach(async () => {
+  await cleanupTempDirs(dirs)
+})
+
+function env(): NodeJS.ProcessEnv {
+  return { XDG_CONFIG_HOME: dirs.configDir }
+}
+
+describe('allocate — fresh allocation', () => {
+  it('allocates contiguous ports for a 3-service config', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const config = makeAllocatorConfig([
+      { envVar: 'API_PORT', name: 'api' },
+      { envVar: 'VITE_PORT', name: 'vite' },
+      { envVar: 'WS_PORT', name: 'ws' },
+    ])
+    const key = makeAllocationKey(wt)
+    const result = await allocate(key, config, env())
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+
+    const { allocation, reused } = result.value
+    expect(reused).toBe(false)
+    const ports = Object.values(allocation.ports)
+    expect(ports).toHaveLength(3)
+    // Ports must be contiguous
+    const sorted = [...ports].sort((a, b) => a - b)
+    for (let i = 1; i < sorted.length; i++) {
+      expect(sorted[i]).toBe(sorted[i - 1] + 1)
+    }
+    // Ports within pool range
+    expect(sorted[0]).toBeGreaterThanOrEqual(30000)
+    expect(sorted[sorted.length - 1]).toBeLessThan(60000)
+  })
+
+  it('maps service names to their ports in allocation order', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const config = makeAllocatorConfig([
+      { envVar: 'API_PORT', name: 'api' },
+      { envVar: 'VITE_PORT', name: 'vite' },
+    ])
+    const key = makeAllocationKey(wt)
+    const result = await allocate(key, config, env())
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+
+    const { allocation } = result.value
+    expect(Object.keys(allocation.ports)).toContain('api')
+    expect(Object.keys(allocation.ports)).toContain('vite')
+    // api is first, vite is second — should be contiguous
+    const apiPort = allocation.ports.api
+    const vitePort = allocation.ports.vite
+    expect(vitePort).toBe(apiPort + 1)
+  })
+
+  it('records namespace and key on the allocation', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const config = makeAllocatorConfig([{ envVar: 'API_PORT', name: 'api' }])
+    const key = makeAllocationKey(wt, { namespace: 'my-namespace' })
+    const result = await allocate(key, config, env())
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+
+    expect(result.value.allocation.namespace).toBe('my-namespace')
+    expect(result.value.allocation.key.worktreeRoot).toBe(wt)
+  })
+})
+
+describe('allocate — stickiness (reuse path)', () => {
+  it('returns the same ports on second call for the same key (reused: true)', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const config = makeAllocatorConfig([
+      { envVar: 'API_PORT', name: 'api' },
+      { envVar: 'VITE_PORT', name: 'vite' },
+    ])
+    const key = makeAllocationKey(wt)
+
+    const first = await allocate(key, config, env())
+    expect(first.ok).toBe(true)
+    if (!first.ok) {
+      return
+    }
+
+    const second = await allocate(key, config, env())
+    expect(second.ok).toBe(true)
+    if (!second.ok) {
+      return
+    }
+
+    expect(second.value.reused).toBe(true)
+    expect(second.value.allocation.ports).toEqual(first.value.allocation.ports)
+  })
+})
+
+describe('allocate — live-conflict reuse invalidation', () => {
+  it('allocates a fresh block when a stored port is externally bound', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const config = makeAllocatorConfig([
+      { envVar: 'API_PORT', name: 'api' },
+      { envVar: 'VITE_PORT', name: 'vite' },
+    ])
+    const key = makeAllocationKey(wt)
+
+    const first = await allocate(key, config, env())
+    expect(first.ok).toBe(true)
+    if (!first.ok) {
+      return
+    }
+
+    const firstPorts = Object.values(first.value.allocation.ports)
+
+    // Externally bind one of the allocated ports
+    const takenPort = firstPorts[0]
+    const server = await bindServerOnPort(takenPort)
+
+    try {
+      const second = await allocate(key, config, env())
+      expect(second.ok).toBe(true)
+      if (!second.ok) {
+        return
+      }
+
+      expect(second.value.reused).toBe(false)
+      // New allocation must not include the externally-bound port
+      const newPorts = Object.values(second.value.allocation.ports)
+      expect(newPorts).not.toContain(takenPort)
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('allocate — skip-on-probe-fail (fresh path)', () => {
+  it('skips externally-bound ports and finds the next free block', async () => {
+    // Use a tight custom pool range so we can control which port is taken
+    const poolRange = '51100-51110'
+    const wt = await addWorktreeDir(dirs)
+    const config = makeAllocatorConfig([{ envVar: 'API_PORT', name: 'api' }])
+    const key = makeAllocationKey(wt)
+
+    // Bind the first port in the range
+    const server = await bindServerOnPort(51100)
+
+    try {
+      const result = await allocate(key, config, {
+        PORTWEAVE_POOL_RANGE: poolRange,
+        XDG_CONFIG_HOME: dirs.configDir,
+      })
+      expect(result.ok).toBe(true)
+      if (!result.ok) {
+        return
+      }
+
+      expect(result.value.allocation.ports.api).not.toBe(51100)
+      expect(result.value.allocation.ports.api).toBeGreaterThanOrEqual(51101)
+    } finally {
+      await server.close()
+    }
+  })
+})
+
+describe('allocate — pool exhaustion', () => {
+  it('returns ALLOCATION_EXHAUSTED when the pool has no free block', async () => {
+    // Use a pool range just large enough for 1 service
+    const poolRange = '51500-51501'
+    const config1 = makeAllocatorConfig([{ envVar: 'API_PORT', name: 'api' }])
+    const config2 = makeAllocatorConfig([{ envVar: 'API_PORT', name: 'api' }])
+
+    const wt1 = await addWorktreeDir(dirs)
+    const wt2 = await addWorktreeDir(dirs)
+    const key1 = makeAllocationKey(wt1, { namespace: 'wt1' })
+    const key2 = makeAllocationKey(wt2, { namespace: 'wt2' })
+    const testEnv = {
+      PORTWEAVE_POOL_RANGE: poolRange,
+      XDG_CONFIG_HOME: dirs.configDir,
+    }
+
+    // First allocation takes the only slot
+    const first = await allocate(key1, config1, testEnv)
+    expect(first.ok).toBe(true)
+
+    // Second allocation cannot fit
+    const second = await allocate(key2, config2, testEnv)
+    expect(second.ok).toBe(false)
+    if (second.ok) {
+      return
+    }
+    expect(second.error.code).toBe(PW_ERROR_CODES.ALLOCATION_EXHAUSTED)
+  })
+})
+
+describe('allocate — serialization through registry lock', () => {
+  it('two sequential allocations for different keys do not overlap', async () => {
+    const wt1 = await addWorktreeDir(dirs)
+    const wt2 = await addWorktreeDir(dirs)
+    const config = makeAllocatorConfig([
+      { envVar: 'API_PORT', name: 'api' },
+      { envVar: 'VITE_PORT', name: 'vite' },
+    ])
+    const key1 = makeAllocationKey(wt1, { namespace: 'wt1' })
+    const key2 = makeAllocationKey(wt2, { namespace: 'wt2' })
+
+    const first = await allocate(key1, config, env())
+    const second = await allocate(key2, config, env())
+
+    expect(first.ok).toBe(true)
+    expect(second.ok).toBe(true)
+    if (!first.ok || !second.ok) {
+      return
+    }
+
+    const ports1 = new Set(Object.values(first.value.allocation.ports))
+    const ports2 = new Set(Object.values(second.value.allocation.ports))
+    for (const port of ports2) {
+      expect(ports1.has(port)).toBe(false)
+    }
+  })
+})
+
+describe('allocate — group ordering in output', () => {
+  it('grouped services land contiguous in the ports map', async () => {
+    // kinesis and kinesis-tls are scattered but should be contiguous in output
+    const wt = await addWorktreeDir(dirs)
+    const config = makeAllocatorConfig([
+      { envVar: 'KINESIS_PORT', group: 'kinesis', name: 'kinesis' },
+      { envVar: 'API_PORT', name: 'api' },
+      { envVar: 'KINESIS_TLS_PORT', group: 'kinesis', name: 'kinesis-tls' },
+    ])
+    const key = makeAllocationKey(wt, { namespace: 'group-test' })
+
+    const result = await allocate(key, config, env())
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+
+    const kinesisPort = result.value.allocation.ports.kinesis
+    const kinesisTlsPort = result.value.allocation.ports['kinesis-tls']
+    // They should be adjacent (contiguous)
+    expect(Math.abs(kinesisPort - kinesisTlsPort)).toBe(1)
+  })
+})
+
+describe('allocate — offsetOverride plumbing', () => {
+  it('preserves offsetOverride in the stored entry even though it does not influence search', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const config = makeAllocatorConfig([{ envVar: 'API_PORT', name: 'api' }])
+    const key = makeAllocationKey(wt, { offsetOverride: 42 })
+
+    const result = await allocate(key, config, env())
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+
+    expect(result.value.allocation.key.offsetOverride).toBe(42)
+  })
+})
+
+describe('allocate — MAX_PROBE_RETRIES constant', () => {
+  it('exports MAX_PROBE_RETRIES = 100', () => {
+    expect(MAX_PROBE_RETRIES).toBe(100)
+  })
+})

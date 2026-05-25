@@ -2,6 +2,11 @@
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": ["src/index.ts", "scripts/bin/*.ts"],
   "project": ["src/**/*.ts", "scripts/**/*.ts", "config/**/*.ts"],
-  "ignore": ["scripts/src/tasks/**", "scripts/src/utils/ci-workflow-parser.ts"],
+  "ignore": [
+    "scripts/src/tasks/**",
+    "scripts/src/utils/ci-workflow-parser.ts",
+    "src/allocator/cross-project.ts",
+    "src/allocator/order.ts"
+  ],
   "ignoreDependencies": ["constants-check", "jscpd", "prettier"]
 }

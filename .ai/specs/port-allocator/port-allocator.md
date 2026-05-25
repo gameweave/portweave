@@ -1,6 +1,6 @@
 # Port allocator and live conflict probe
 
-**Status:** approved
+**Status:** shipped
 **Owner:** TBD
 **Feature doc:** [.ai/features/port-allocator/port-allocator.md](../../features/port-allocator/port-allocator.md)
 **Decision-log rows:** [#4](../../decision-log.md) / [#9](../../decision-log.md) (machine-wide pool), [#17](../../decision-log.md) (PW error-code numbering — this feature is the first user of the `PW04xx` allocator block; `ALLOCATION_EXHAUSTED=PW0401` is already seeded in [src/errors.ts](../../../src/errors.ts))

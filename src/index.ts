@@ -1,4 +1,13 @@
 export {
+  allocate,
+  type Allocation,
+  type AllocationResult,
+  MAX_PROBE_RETRIES,
+  orderServicesForAllocation,
+} from './allocator/allocate.ts'
+export { findFreeBlock, resolvePoolRange } from './allocator/pool.ts'
+export { probeBlock, probePort } from './allocator/probe.ts'
+export {
   type Config,
   loadConfig,
   type LoadConfigOptions,
