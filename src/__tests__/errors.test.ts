@@ -49,14 +49,21 @@ describe('PortweaveError', () => {
 })
 
 describe('PW_ERROR_CODES', () => {
-  it('contains the seed codes plus the worktree-context block with expected values', () => {
+  it('contains the seed codes plus all component blocks with expected values', () => {
     expect(PW_ERROR_CODES).toStrictEqual({
       ALLOCATION_EXHAUSTED: 'PW0401',
+      CLI_CHILD_SPAWN_FAILED: 'PW0602',
+      CLI_INVALID_FLAGS: 'PW0601',
+      CLI_NO_ALLOCATION: 'PW0603',
       CONFIG_INVALID: 'PW0102',
       CONFIG_MISSING: 'PW0101',
+      ENV_BUILD_INVALID: 'PW0501',
+      ENV_DOTENV_PARSE_FAILED: 'PW0502',
       NOT_A_GIT_REPO: 'PW0201',
       REGISTRY_CORRUPT: 'PW0302',
       REGISTRY_LOCKED: 'PW0301',
+      RUNTIME_CONFIG_NOT_FOUND: 'PW0701',
+      RUNTIME_NOT_INITIALIZED: 'PW0702',
       WORKTREE_OFFSET_INVALID: 'PW0202',
     })
   })
@@ -65,11 +72,18 @@ describe('PW_ERROR_CODES', () => {
     const keys = Object.keys(PW_ERROR_CODES).sort()
     expect(keys).toStrictEqual([
       'ALLOCATION_EXHAUSTED',
+      'CLI_CHILD_SPAWN_FAILED',
+      'CLI_INVALID_FLAGS',
+      'CLI_NO_ALLOCATION',
       'CONFIG_INVALID',
       'CONFIG_MISSING',
+      'ENV_BUILD_INVALID',
+      'ENV_DOTENV_PARSE_FAILED',
       'NOT_A_GIT_REPO',
       'REGISTRY_CORRUPT',
       'REGISTRY_LOCKED',
+      'RUNTIME_CONFIG_NOT_FOUND',
+      'RUNTIME_NOT_INITIALIZED',
       'WORKTREE_OFFSET_INVALID',
     ])
   })

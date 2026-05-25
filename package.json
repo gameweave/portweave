@@ -5,6 +5,16 @@
   "license": "UNLICENSED",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./runtime": {
+      "import": "./dist/runtime/index.js",
+      "types": "./dist/runtime/index.d.ts"
+    }
+  },
   "bin": {
     "portweave": "./dist/cli.js"
   },
@@ -14,12 +24,13 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc --build",
+    "build": "tsc --project tsconfig.build.json && chmod +x dist/cli.js",
     "typecheck": "tsx scripts/bin/typecheck.ts",
     "lint": "tsx scripts/bin/lint.ts",
     "lint:fix": "tsx scripts/bin/lint.ts --fix",
     "format": "tsx scripts/bin/format.ts",
     "format:check": "tsx scripts/bin/format.ts --check",
+    "pretest": "npm run build",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage --passWithNoTests",
     "test:watch": "vitest",
@@ -45,6 +56,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "commander": "^14.0.3",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -60,13 +72,13 @@
     "eslint-plugin-perfectionist": "^5.9.0",
     "eslint-plugin-sonarjs": "^4.0.3",
     "husky": "^9.1.7",
-    "jscpd": "^4.2.3",
+    "jscpd": "^4.2.4",
     "knip": "^6.14.2",
     "loglevel": "^1.9.2",
     "prettier": "~3.8.3",
     "tsx": "^4.22.3",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.59.4",
+    "typescript-eslint": "^8.60.0",
     "vitest": "^4.1.7",
     "yaml": "^2.9.0"
   },

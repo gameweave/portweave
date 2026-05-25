@@ -2,7 +2,7 @@
 name: run-command
 title: portweave run CLI wrapper
 roadmap_ref: .ai/roadmaps/v0-roadmap.md#7-run-command--cli-skeleton--portweave-run-----cmd
-status: drafted
+status: shipped
 ---
 
 # portweave run CLI wrapper

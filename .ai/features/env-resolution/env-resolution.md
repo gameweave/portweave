@@ -2,7 +2,7 @@
 name: env-resolution
 title: Env-var resolution and .portweave/current.env writer
 roadmap_ref: .ai/roadmaps/v0-roadmap.md#6-env-resolution--env-var-computation-url-template-expansion-portweavecurrentenv-writer
-status: drafted
+status: scoped
 ---
 
 # Env-var resolution and .portweave/current.env writer
