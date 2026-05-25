@@ -9,6 +9,10 @@ export const PW_ERROR_CODES = {
   NOT_A_GIT_REPO: 'PW0201',
   REGISTRY_CORRUPT: 'PW0302',
   REGISTRY_LOCKED: 'PW0301',
+  // PW07xx — library-runtime block (see .ai/specs/library-runtime)
+  RUNTIME_CONFIG_NOT_FOUND: 'PW0701',
+  // PW0702 reserved for future cached-state failure; not emitted at v0
+  RUNTIME_NOT_INITIALIZED: 'PW0702',
   WORKTREE_OFFSET_INVALID: 'PW0202',
 } as const satisfies Record<string, `PW${number}`>
 

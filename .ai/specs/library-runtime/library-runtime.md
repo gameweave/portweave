@@ -1,6 +1,6 @@
 # portweave/runtime library API
 
-**Status:** approved
+**Status:** shipped
 **Owner:** TBD
 **Feature doc:** [.ai/features/library-runtime/library-runtime.md](../../features/library-runtime/library-runtime.md)
 **Decision-log rows:** [#6](../../decision-log.md) (JS library API deferred — this spec **overturns** that decision and ratifies the API into v0), [#17](../../decision-log.md) (PW error-code numbering — this feature opens the `PW07xx` library-runtime block), [#18](../../decision-log.md) (`.ts` import-extension policy — relevant for the ESM `exports` mapping that this spec adds)

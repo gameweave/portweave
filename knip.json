@@ -6,7 +6,9 @@
     "scripts/src/tasks/**",
     "scripts/src/utils/ci-workflow-parser.ts",
     "src/allocator/cross-project.ts",
-    "src/allocator/order.ts"
+    "src/allocator/order.ts",
+    "src/runtime/error-passthrough.ts",
+    "src/runtime/exports-smoke.ts"
   ],
   "ignoreDependencies": ["constants-check", "jscpd", "prettier"]
 }
