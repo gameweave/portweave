@@ -2,7 +2,7 @@
 name: show-command
 title: portweave show introspection
 roadmap_ref: .ai/roadmaps/v0-roadmap.md#8-show-command--portweave-show-introspection
-status: drafted
+status: scoped
 ---
 
 # portweave show introspection

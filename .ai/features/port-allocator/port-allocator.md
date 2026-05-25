@@ -2,7 +2,7 @@
 name: port-allocator
 title: Port allocator and live conflict probe
 roadmap_ref: .ai/roadmaps/v0-roadmap.md#5-port-allocator--block-selection-from-machine-wide-pool-live-conflict-probe-service-groups
-status: drafted
+status: scoped
 ---
 
 # Port allocator and live conflict probe

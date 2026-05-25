@@ -2,7 +2,7 @@
 name: parity-verification
 title: Boardflip drop-in acceptance gate
 roadmap_ref: .ai/roadmaps/v0-roadmap.md#10-parity-verification--boardflip-drop-in-adoption-acceptance-test
-status: drafted
+status: scoped
 ---
 
 # Boardflip drop-in acceptance gate
