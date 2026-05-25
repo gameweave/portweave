@@ -52,6 +52,8 @@ describe('PW_ERROR_CODES', () => {
   it('contains the seed codes plus the worktree-context block with expected values', () => {
     expect(PW_ERROR_CODES).toStrictEqual({
       ALLOCATION_EXHAUSTED: 'PW0401',
+      CLI_CHILD_SPAWN_FAILED: 'PW0602',
+      CLI_INVALID_FLAGS: 'PW0601',
       CONFIG_INVALID: 'PW0102',
       CONFIG_MISSING: 'PW0101',
       ENV_BUILD_INVALID: 'PW0501',
@@ -67,6 +69,8 @@ describe('PW_ERROR_CODES', () => {
     const keys = Object.keys(PW_ERROR_CODES).sort()
     expect(keys).toStrictEqual([
       'ALLOCATION_EXHAUSTED',
+      'CLI_CHILD_SPAWN_FAILED',
+      'CLI_INVALID_FLAGS',
       'CONFIG_INVALID',
       'CONFIG_MISSING',
       'ENV_BUILD_INVALID',
