@@ -1,6 +1,6 @@
 # Boardflip drop-in acceptance gate
 
-**Status:** approved
+**Status:** shipped
 **Owner:** TBD
 **Feature doc:** [.ai/features/parity-verification/parity-verification.md](../../features/parity-verification/parity-verification.md)
 **Decision-log rows:** [#7](../../decision-log.md) (v0 scope cap is boardflip parity), [#14](../../decision-log.md) (drop-in adoption by boardflip is the v0 verification criterion), every prior feature row by transitive reference

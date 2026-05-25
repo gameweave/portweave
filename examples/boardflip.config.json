@@ -1,0 +1,52 @@
+{
+  "$schema": "https://portweave.dev/schema/v1.json",
+  "services": {
+    "api": {
+      "envVar": "API_PORT",
+      "discoveryEnv": {
+        "E2E_API_ORIGIN": "http://localhost:${api}",
+        "VITE_API_PORT": "${api}",
+        "VITE_API_URL": "http://localhost:${api}"
+      }
+    },
+    "ws": {
+      "envVar": "WS_PORT",
+      "discoveryEnv": {
+        "VITE_WS_PORT": "${ws}",
+        "VITE_WS_URL": "ws://localhost:${ws}",
+        "WEBSOCKET_ENDPOINT": "http://localhost:${ws}"
+      }
+    },
+    "vite": {
+      "envVar": "VITE_PORT"
+    },
+    "dynamodb": {
+      "group": "dynamodb",
+      "envVar": "DYNAMODB_PORT",
+      "discoveryEnv": {
+        "DYNAMODB_ENDPOINT": "http://localhost:${dynamodb}"
+      }
+    },
+    "dynamodb-admin": {
+      "group": "dynamodb",
+      "envVar": "DYNAMODB_ADMIN_PORT"
+    },
+    "kinesis": {
+      "group": "kinesis",
+      "envVar": "KINESIS_PORT",
+      "discoveryEnv": {
+        "KINESIS_ENDPOINT": "http://localhost:${kinesis}"
+      }
+    },
+    "kinesis-tls": {
+      "group": "kinesis",
+      "envVar": "KINESIS_TLS_PORT"
+    },
+    "ses": {
+      "envVar": "SES_LOCAL_PORT",
+      "discoveryEnv": {
+        "SES_ENDPOINT": "http://localhost:${ses}"
+      }
+    }
+  }
+}

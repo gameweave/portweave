@@ -3,20 +3,7 @@ import { createRequire } from 'node:module'
 import { Command } from 'commander'
 import { PortweaveError } from './errors.ts'
 import { registerRunCommand } from './cli/run.ts'
-
-// show-command: stub registration point for Wave B3's parallel worktree.
-// registerShowCommand(program) will be called here once that spec lands.
-// The function is declared here as a no-op placeholder so the integration
-// merge is conflict-free.
-function registerShowCommand(program: Command): void {
-  program
-    .command('show')
-    .description('Show the current port allocation (coming soon)')
-    .action(() => {
-      process.stderr.write('[portweave] show command is not yet implemented\n')
-      process.exitCode = 1
-    })
-}
+import { registerShowCommand } from './cli/show.ts'
 
 const require = createRequire(import.meta.url)
 const pkg = require('../package.json') as { version: string }
