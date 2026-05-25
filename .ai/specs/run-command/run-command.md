@@ -1,6 +1,6 @@
 # portweave run CLI wrapper
 
-**Status:** approved
+**Status:** shipped
 **Owner:** TBD
 **Feature doc:** [.ai/features/run-command/run-command.md](../../features/run-command/run-command.md)
 **Decision-log rows:** [#5](../../decision-log.md) (wrapper CLI primary; always-write `.portweave/current.env` side effect), [#17](../../decision-log.md) (PW error-code numbering — this feature opens the `PW06xx` CLI block)

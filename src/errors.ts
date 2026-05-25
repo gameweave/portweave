@@ -2,6 +2,8 @@
 // the table in .ai/specs/result-types/result-types.md.
 export const PW_ERROR_CODES = {
   ALLOCATION_EXHAUSTED: 'PW0401',
+  CLI_CHILD_SPAWN_FAILED: 'PW0602',
+  CLI_INVALID_FLAGS: 'PW0601',
   CONFIG_INVALID: 'PW0102',
   CONFIG_MISSING: 'PW0101',
   ENV_BUILD_INVALID: 'PW0501',
