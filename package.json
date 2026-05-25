@@ -44,12 +44,15 @@
     "task:check-complete": "tsx scripts/bin/task-check-complete.ts",
     "prepare": "husky"
   },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@stylistic/eslint-plugin": "^5.10.0",
     "@types/node": "^25.9.0",
     "@vitest/coverage-v8": "^4.1.7",
-    "constants-check": "^0.1.0",
+    "constants-check": "^0.2.0",
     "eslint": "^10.4.0",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-canonical": "^5.1.3",

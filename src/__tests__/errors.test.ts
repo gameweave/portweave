@@ -49,13 +49,15 @@ describe('PortweaveError', () => {
 })
 
 describe('PW_ERROR_CODES', () => {
-  it('contains exactly the five seed codes with the expected values', () => {
+  it('contains the seed codes plus the worktree-context block with expected values', () => {
     expect(PW_ERROR_CODES).toStrictEqual({
       ALLOCATION_EXHAUSTED: 'PW0401',
       CONFIG_INVALID: 'PW0102',
       CONFIG_MISSING: 'PW0101',
+      NOT_A_GIT_REPO: 'PW0201',
       REGISTRY_CORRUPT: 'PW0302',
       REGISTRY_LOCKED: 'PW0301',
+      WORKTREE_OFFSET_INVALID: 'PW0202',
     })
   })
 
@@ -65,8 +67,10 @@ describe('PW_ERROR_CODES', () => {
       'ALLOCATION_EXHAUSTED',
       'CONFIG_INVALID',
       'CONFIG_MISSING',
+      'NOT_A_GIT_REPO',
       'REGISTRY_CORRUPT',
       'REGISTRY_LOCKED',
+      'WORKTREE_OFFSET_INVALID',
     ])
   })
 
