@@ -2,7 +2,7 @@
 name: library-runtime
 title: portweave/runtime library API
 roadmap_ref: .ai/roadmaps/v0-roadmap.md#9-library-runtime--import--ports--from-portweaveruntime-js-api
-status: scoped
+status: shipped
 ---
 
 # portweave/runtime library API
