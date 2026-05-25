@@ -1,15 +1,14 @@
 import { basename } from 'node:path'
 import type { Allocation } from '../allocator/allocate.ts'
 import type { Config } from '../config/index.ts'
-import type { ResolvedEnv } from '../env/index.ts'
 
 export interface BannerInput {
   allocation: Allocation
   config: Config
   launchingCommand?: string
-  resolvedEnv: ResolvedEnv
   reused: boolean
   verboseLines?: readonly string[]
+  wroteEnvFile?: boolean
 }
 
 const PREFIX = '[portweave]'
@@ -25,7 +24,14 @@ function worktreeName(worktreeRoot: string): string {
  * Pure — no I/O, no global state. All tests are snapshot-friendly fixtures.
  */
 export function formatAllocationBanner(input: BannerInput): string {
-  const { allocation, config, launchingCommand, reused, verboseLines } = input
+  const {
+    allocation,
+    config,
+    launchingCommand,
+    reused,
+    verboseLines,
+    wroteEnvFile,
+  } = input
   const { key, namespace, ports } = allocation
 
   const lines: string[] = []
@@ -53,8 +59,11 @@ export function formatAllocationBanner(input: BannerInput): string {
     lines.push(`  ${paddedName}→ ${String(port)}     (${service.envVar})`)
   }
 
-  // Wrote line
-  lines.push(`${PREFIX} wrote .portweave/current.env`)
+  // Wrote line — only when run-command actually wrote the env file; show
+  // omits this since it's a read-only introspection command.
+  if (wroteEnvFile === true) {
+    lines.push(`${PREFIX} wrote .portweave/current.env`)
+  }
 
   // Optional verbose lines (already prefixed with [portweave])
   if (verboseLines !== undefined) {

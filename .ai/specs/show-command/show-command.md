@@ -1,6 +1,6 @@
 # portweave show — read-only allocation introspection
 
-**Status:** approved
+**Status:** shipped
 **Owner:** TBD
 **Feature doc:** [.ai/features/show-command/show-command.md](../../features/show-command/show-command.md)
 **Decision-log rows:** [#5](../../decision-log.md) (wrapper writes `.portweave/current.env` — show must _not_), [#17](../../decision-log.md) (PW error-code numbering — this spec opens one slot in the CLI block `PW06xx`)

@@ -152,9 +152,9 @@ async function spawnWithBanner(ctx: SpawnBannerContext): Promise<number> {
       allocation,
       config,
       launchingCommand: childArgs.join(' '),
-      resolvedEnv,
       reused,
       verboseLines,
+      wroteEnvFile: true,
     }) + '\n',
   )
   // Parent spread last → parent wins on conflict. Step-7 spec example is inverted.

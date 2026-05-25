@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Allocation } from '../../allocator/allocate.ts'
 import type { Config } from '../../config/index.ts'
-import type { ResolvedEnv } from '../../env/index.ts'
 import {
   type BannerInput,
   formatAllocationBanner,
@@ -32,22 +31,13 @@ function makeConfig(overrides?: Partial<Config>): Config {
   }
 }
 
-function makeResolvedEnv(overrides?: Partial<ResolvedEnv>): ResolvedEnv {
-  return {
-    createdPortweaveDir: false,
-    currentEnvPath: '/repo/.portweave/current.env',
-    env: { API_PORT: '30000' },
-    ...overrides,
-  }
-}
-
 function makeInput(overrides?: Partial<BannerInput>): BannerInput {
   return {
     allocation: makeAllocation(),
     config: makeConfig(),
     launchingCommand: 'npm start',
-    resolvedEnv: makeResolvedEnv(),
     reused: false,
+    wroteEnvFile: true,
     ...overrides,
   }
 }
@@ -121,12 +111,7 @@ describe('formatAllocationBanner — padding and verbose', () => {
         },
       ],
     })
-    const resolvedEnv = makeResolvedEnv({
-      env: { API_PORT: '30000', SOME_LONG_SERVICE_PORT: '30001' },
-    })
-    const banner = formatAllocationBanner(
-      makeInput({ allocation, config, resolvedEnv }),
-    )
+    const banner = formatAllocationBanner(makeInput({ allocation, config }))
     const lines = banner.split('\n')
     const apiLine = lines.find((l) => l.includes('API_PORT'))
     const longLine = lines.find((l) => l.includes('SOME_LONG_SERVICE_PORT'))
@@ -176,16 +161,11 @@ describe('formatAllocationBanner — padding and verbose', () => {
         { discoveryEnv: {}, envVar: 'DB_PORT', name: 'db' },
       ],
     })
-    const resolvedEnv = makeResolvedEnv({
-      currentEnvPath: '/project/worktrees/feature-xyz/.portweave/current.env',
-      env: { API_PORT: '30100', DB_PORT: '30101' },
-    })
     const banner = formatAllocationBanner(
       makeInput({
         allocation,
         config,
         launchingCommand: 'npm run dev',
-        resolvedEnv,
         reused: false,
       }),
     )
