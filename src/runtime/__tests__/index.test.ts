@@ -4,6 +4,9 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { PW_ERROR_CODES } from '../../errors.ts'
 import { allocation, env, ports } from '../index.ts'
+import { setupScopedXdg } from './_helpers.ts'
+
+setupScopedXdg()
 
 const VALID_CONFIG = JSON.stringify({
   services: {

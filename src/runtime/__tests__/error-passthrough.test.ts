@@ -4,6 +4,9 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PW_ERROR_CODES } from '../error-passthrough.ts'
 import { ports } from '../index.ts'
+import { setupScopedXdg } from './_helpers.ts'
+
+setupScopedXdg()
 
 async function makeTmpDir(label: string): Promise<string> {
   const dir = join(

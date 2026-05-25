@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ports } from '../index.ts'
+import { setupScopedXdg } from './_helpers.ts'
+
+setupScopedXdg()
 
 async function makeTmpDir(label: string): Promise<string> {
   const dir = join(

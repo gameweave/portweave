@@ -15,6 +15,9 @@ import { join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { makeConsumerProject, makeTmpSmokeDir } from '../exports-smoke.ts'
+import { setupScopedXdg } from './_helpers.ts'
+
+setupScopedXdg()
 
 const execFileAsync = promisify(execFile)
 
