@@ -59,6 +59,55 @@ describe('readDotenvFile', () => {
     }
   })
 
+  it('strips inline # comments from unquoted values', async () => {
+    const path = await writeTmp(
+      [
+        'API_PORT=3001 # primary backend',
+        'WEB_PORT=3002\t# tabs work too',
+        'DB_PORT=3003   #lots of spaces',
+      ].join('\n'),
+    )
+    const result = await readDotenvFile(path)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value).toEqual({
+        API_PORT: '3001',
+        DB_PORT: '3003',
+        WEB_PORT: '3002',
+      })
+    }
+  })
+
+  it('preserves # literally inside quoted values', async () => {
+    const path = await writeTmp(
+      [
+        'COMMENT_HASH_DOUBLE="value # not a comment"',
+        "COMMENT_HASH_SINGLE='other # nope'",
+      ].join('\n'),
+    )
+    const result = await readDotenvFile(path)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value).toEqual({
+        COMMENT_HASH_DOUBLE: 'value # not a comment',
+        COMMENT_HASH_SINGLE: 'other # nope',
+      })
+    }
+  })
+
+  it('does not strip # that is part of the value (no preceding whitespace)', async () => {
+    // Without a separating space, the # is treated as part of the value.
+    // This matches how dotenv-class libraries handle the ambiguity.
+    const path = await writeTmp('FRAGMENT=http://localhost:3001#section\n')
+    const result = await readDotenvFile(path)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value).toEqual({
+        FRAGMENT: 'http://localhost:3001#section',
+      })
+    }
+  })
+
   it('skips blank lines', async () => {
     const path = await writeTmp('\n\nAPI_PORT=3001\n\n')
     const result = await readDotenvFile(path)

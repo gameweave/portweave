@@ -32,12 +32,19 @@ function parseLine(
   let value: string
 
   if (quote === '"' || quote === "'") {
-    // Strip surrounding quotes (match group 3 is the inner content)
+    // Strip surrounding quotes (match group 3 is the inner content).
+    // `#` inside a quoted value is treated literally per dotenv convention.
     value = match[3]
   } else {
-    // Unquoted: everything after the =
+    // Unquoted: everything after the =. Strip inline trailing comments
+    // (` # ...` to end-of-line) since unquoted values cannot contain a `#`
+    // literal without breaking dotenv consumers. Users who need a literal
+    // `#` should quote the value.
     const eqIndex = trimmed.indexOf('=')
-    value = trimmed.slice(eqIndex + 1)
+    const raw = trimmed.slice(eqIndex + 1)
+    const commentMatch = /\s+#.*$/.exec(raw)
+    value =
+      commentMatch === null ? raw : raw.slice(0, commentMatch.index).trimEnd()
   }
 
   return ok({ key, value })

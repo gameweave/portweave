@@ -12,6 +12,11 @@ import { formatAllocationBanner } from './banner.ts'
 
 export interface ShowOptions {
   cwd?: string
+  /**
+   * Test-injection override for process.env. Scoped XDG_CONFIG_HOME and
+   * other env vars flow through to `withRegistry`. Defaults to `process.env`
+   * in production. See `src/cli/__tests__/show.test.ts` for usage.
+   */
   env?: NodeJS.ProcessEnv
   json?: boolean
   stderr?: NodeJS.WritableStream
@@ -61,7 +66,12 @@ function buildJsonPayload(
   return JSON.stringify(payload, null, 2) + '\n'
 }
 
-function sortedObject<T>(obj: Record<string, T>): Record<string, T> {
+// T is constrained to the JSON-leaf types we actually use (string for env,
+// number for ports). The constraint documents valid usage and lets the
+// type narrowing through index access stay sound under future strictness.
+function sortedObject<T extends number | string>(
+  obj: Record<string, T>,
+): Record<string, T> {
   const sorted: Record<string, T> = {}
   for (const key of Object.keys(obj).sort()) {
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion

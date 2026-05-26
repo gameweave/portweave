@@ -7,7 +7,8 @@
  * `exports-smoke.test.ts`.
  */
 import { execFile } from 'node:child_process'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
@@ -41,11 +42,7 @@ export async function makeConsumerProject(
 }
 
 export async function makeTmpSmokeDir(label: string): Promise<string> {
-  const { tmpdir } = await import('node:os')
-  const dir = join(
-    tmpdir(),
-    `portweave-smoke-${label}-${process.pid.toString()}-${Date.now().toString()}`,
-  )
-  await mkdir(dir, { recursive: true })
-  return dir
+  // Use mkdtemp to guarantee uniqueness; pid + Date.now() leaves a theoretical
+  // collision window under concurrent runs.
+  return mkdtemp(join(tmpdir(), `portweave-smoke-${label}-`))
 }

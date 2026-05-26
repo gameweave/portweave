@@ -157,7 +157,7 @@ async function spawnWithBanner(ctx: SpawnBannerContext): Promise<number> {
       wroteEnvFile: true,
     }) + '\n',
   )
-  // Parent spread last → parent wins on conflict. Step-7 spec example is inverted.
+  // Parent env spread last → io.env wins on conflict (DESIGN.md §7.2 row 9: process > .env > computed). Spec step-7 example is inverted.
   const mergedEnv: NodeJS.ProcessEnv = { ...resolvedEnv.env, ...io.env }
   const spawnResult = await spawnChild(childArgs, { env: mergedEnv, io })
   if (!spawnResult.ok) {

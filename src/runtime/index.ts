@@ -9,9 +9,7 @@ import { resolveEnv } from '../env/index.ts'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { err, ok, type Result } from '../result.ts'
 import { resolveAllocationKey } from '../worktree/key.ts'
-import { findConfigUpward } from './upward-walk.ts'
-
-const CONFIG_FILENAME = 'portweave.config.json'
+import { CONFIG_FILENAME, findConfigUpward } from './upward-walk.ts'
 
 export interface PortsOptions {
   /** Explicit config path; bypasses upward-walk discovery. Resolved against `cwd` if relative. */
@@ -74,6 +72,15 @@ async function resolveConfigForRuntime(
   )
 }
 
+/**
+ * Run the full allocate → resolveEnv pipeline once and return its outcome.
+ *
+ * Async because `allocate()` and `resolveEnv()` are async — they go through
+ * the registry lock and the `.portweave/current.env` write. The early
+ * `resolveAllocationKey()` call is sync (it returns a `Result`), so the
+ * early-return-on-`!keyResult.ok` path is plain `Result` propagation, not
+ * a Promise boundary.
+ */
 async function resolveRuntime(
   opts?: PortsOptions,
 ): Promise<Result<RuntimeOutcome, PortweaveError>> {

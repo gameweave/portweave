@@ -75,62 +75,131 @@ describe('findFreeBlock', () => {
 })
 
 describe('resolvePoolRange', () => {
+  // Silenced stderr for tests asserting fallback behavior — the warning is
+  // verified separately in the dedicated warning tests below.
+  const silentStderr = {
+    write: (): boolean => true,
+  }
+
   it('returns the default range when env var is absent', () => {
-    expect(resolvePoolRange({})).toEqual(DEFAULT_RANGE)
+    expect(resolvePoolRange({}, silentStderr)).toEqual(DEFAULT_RANGE)
   })
 
   it('returns the default range when env var is empty', () => {
-    expect(resolvePoolRange({ PORTWEAVE_POOL_RANGE: '' })).toEqual(
-      DEFAULT_RANGE,
-    )
+    expect(
+      resolvePoolRange({ PORTWEAVE_POOL_RANGE: '' }, silentStderr),
+    ).toEqual(DEFAULT_RANGE)
   })
 
   it('parses a valid override', () => {
-    expect(resolvePoolRange({ PORTWEAVE_POOL_RANGE: '40000-50000' })).toEqual({
+    expect(
+      resolvePoolRange({ PORTWEAVE_POOL_RANGE: '40000-50000' }, silentStderr),
+    ).toEqual({
       end: 50000,
       start: 40000,
     })
   })
 
   it('falls back on non-integer values', () => {
-    expect(resolvePoolRange({ PORTWEAVE_POOL_RANGE: 'abc-def' })).toEqual(
-      DEFAULT_RANGE,
-    )
+    expect(
+      resolvePoolRange({ PORTWEAVE_POOL_RANGE: 'abc-def' }, silentStderr),
+    ).toEqual(DEFAULT_RANGE)
   })
 
   it('falls back on inverted range (start >= end)', () => {
-    expect(resolvePoolRange({ PORTWEAVE_POOL_RANGE: '50000-40000' })).toEqual(
-      DEFAULT_RANGE,
-    )
+    expect(
+      resolvePoolRange({ PORTWEAVE_POOL_RANGE: '50000-40000' }, silentStderr),
+    ).toEqual(DEFAULT_RANGE)
   })
 
   it('falls back on equal start and end', () => {
-    expect(resolvePoolRange({ PORTWEAVE_POOL_RANGE: '40000-40000' })).toEqual(
-      DEFAULT_RANGE,
-    )
+    expect(
+      resolvePoolRange({ PORTWEAVE_POOL_RANGE: '40000-40000' }, silentStderr),
+    ).toEqual(DEFAULT_RANGE)
   })
 
   it('falls back on non-positive start', () => {
-    expect(resolvePoolRange({ PORTWEAVE_POOL_RANGE: '0-50000' })).toEqual(
-      DEFAULT_RANGE,
-    )
+    expect(
+      resolvePoolRange({ PORTWEAVE_POOL_RANGE: '0-50000' }, silentStderr),
+    ).toEqual(DEFAULT_RANGE)
   })
 
   it('falls back on negative start', () => {
-    expect(resolvePoolRange({ PORTWEAVE_POOL_RANGE: '-1000-50000' })).toEqual(
-      DEFAULT_RANGE,
-    )
+    expect(
+      resolvePoolRange({ PORTWEAVE_POOL_RANGE: '-1000-50000' }, silentStderr),
+    ).toEqual(DEFAULT_RANGE)
   })
 
   it('falls back on float values', () => {
-    expect(resolvePoolRange({ PORTWEAVE_POOL_RANGE: '30000.5-60000' })).toEqual(
-      DEFAULT_RANGE,
-    )
+    expect(
+      resolvePoolRange({ PORTWEAVE_POOL_RANGE: '30000.5-60000' }, silentStderr),
+    ).toEqual(DEFAULT_RANGE)
   })
 
   it('falls back on extra segments', () => {
     expect(
-      resolvePoolRange({ PORTWEAVE_POOL_RANGE: '30000-50000-60000' }),
+      resolvePoolRange(
+        { PORTWEAVE_POOL_RANGE: '30000-50000-60000' },
+        silentStderr,
+      ),
     ).toEqual(DEFAULT_RANGE)
+  })
+
+  it('falls back when start is below the privileged-port floor (1024)', () => {
+    const warnings: string[] = []
+    const stderr = {
+      write: (msg: string): boolean => {
+        warnings.push(msg)
+        return true
+      },
+    }
+    expect(
+      resolvePoolRange({ PORTWEAVE_POOL_RANGE: '512-2000' }, stderr),
+    ).toEqual(DEFAULT_RANGE)
+    expect(warnings.join('')).toContain('PORTWEAVE_POOL_RANGE="512-2000"')
+  })
+
+  it('accepts start exactly at the privileged-port floor', () => {
+    expect(
+      resolvePoolRange({ PORTWEAVE_POOL_RANGE: '1024-2048' }, silentStderr),
+    ).toEqual({ end: 2048, start: 1024 })
+  })
+
+  it('emits a stderr warning when the override is malformed', () => {
+    const warnings: string[] = []
+    const stderr = {
+      write: (msg: string): boolean => {
+        warnings.push(msg)
+        return true
+      },
+    }
+    resolvePoolRange({ PORTWEAVE_POOL_RANGE: 'not-a-range' }, stderr)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('PORTWEAVE_POOL_RANGE="not-a-range" ignored')
+    expect(warnings[0]).toContain('30000-60000')
+  })
+
+  it('does NOT warn when the override is absent (no env var set)', () => {
+    const warnings: string[] = []
+    const stderr = {
+      write: (msg: string): boolean => {
+        warnings.push(msg)
+        return true
+      },
+    }
+    resolvePoolRange({}, stderr)
+    expect(warnings).toHaveLength(0)
+  })
+
+  it('does NOT warn when the override is a valid range', () => {
+    const warnings: string[] = []
+    const stderr = {
+      write: (msg: string): boolean => {
+        warnings.push(msg)
+        return true
+      },
+    }
+    resolvePoolRange({ PORTWEAVE_POOL_RANGE: '40000-50000' }, stderr)
+    expect(warnings).toHaveLength(0)
   })
 })

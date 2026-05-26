@@ -1,8 +1,9 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ports } from '../index.ts'
+import { findConfigUpward } from '../upward-walk.ts'
 import { setupScopedXdg } from './_helpers.ts'
 
 setupScopedXdg()
@@ -68,6 +69,36 @@ describe('findConfigUpward', () => {
     // a parent dir happens to have a config. We just verify it is a typed error.
     expect(result.error.code).toBeDefined()
   })
+
+  // chmod 000 doesn't restrict root on POSIX. Skip when running as root
+  // (Docker / some CI configurations) so the assertion remains meaningful.
+  const runningAsRoot = process.getuid?.() === 0
+
+  it.skipIf(runningAsRoot)(
+    'rethrows non-ENOENT errors (e.g. EACCES) instead of silently treating them as missing',
+    async () => {
+      const dir = await makeTmpDir('eacces-rethrow')
+      await writeFile(join(dir, 'portweave.config.json'), VALID_CONFIG)
+      // Strip all permissions on the directory so fs.access for the
+      // config file fails with EACCES rather than ENOENT.
+      await chmod(dir, 0o000)
+      let caught: unknown
+      try {
+        await findConfigUpward(dir)
+      } catch (e: unknown) {
+        caught = e
+      } finally {
+        // Restore permissions so the temp dir can be cleaned up later.
+        await chmod(dir, 0o700)
+      }
+      expect(caught).toBeInstanceOf(Error)
+      if (caught instanceof Error) {
+        expect('code' in caught ? (caught as { code: unknown }).code : '').toBe(
+          'EACCES',
+        )
+      }
+    },
+  )
 
   it('uses nearest ancestor config when multiple exist in the tree', async () => {
     const outer = await makeTmpDir('multi-config-outer')
