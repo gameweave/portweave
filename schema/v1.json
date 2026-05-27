@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/gameweave/portweave/main/schema/v1.json",
+  "title": "Portweave config",
+  "description": "Schema for portweave.config.json. See https://github.com/gameweave/portweave",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["services"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "URL of this schema, for editor autocompletion. Ignored by Portweave at runtime."
+    },
+    "services": {
+      "type": "object",
+      "description": "Map of kebab-case service name to its port/env configuration. At least one entry is required.",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][a-z0-9-]*$": { "$ref": "#/$defs/service" }
+      }
+    }
+  },
+  "$defs": {
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["envVar"],
+      "properties": {
+        "envVar": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Environment variable name the allocated port is exposed as. Must be unique across all services."
+        },
+        "group": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Group label. Services that share a group are allocated as a contiguous block so they move together."
+        },
+        "preferred": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Advisory preferred port. v0 allocates from the machine-wide pool regardless."
+        },
+        "discoveryEnv": {
+          "type": "object",
+          "description": "Additional environment variables mapped to derived values. Templates use ${serviceName} to interpolate that service's allocated port.",
+          "additionalProperties": { "type": "string" },
+          "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]*$" }
+        }
+      }
+    }
+  }
+}

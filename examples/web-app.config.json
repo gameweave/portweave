@@ -1,0 +1,32 @@
+{
+  "$schema": "https://raw.githubusercontent.com/gameweave/portweave/main/schema/v1.json",
+  "services": {
+    "api": {
+      "envVar": "API_PORT",
+      "discoveryEnv": {
+        "API_URL": "http://localhost:${api}",
+        "VITE_API_URL": "http://localhost:${api}"
+      }
+    },
+    "web": {
+      "envVar": "WEB_PORT"
+    },
+    "ws": {
+      "envVar": "WS_PORT",
+      "discoveryEnv": {
+        "VITE_WS_URL": "ws://localhost:${ws}"
+      }
+    },
+    "db": {
+      "group": "data",
+      "envVar": "DB_PORT",
+      "discoveryEnv": {
+        "DATABASE_URL": "postgres://localhost:${db}/app"
+      }
+    },
+    "db-admin": {
+      "group": "data",
+      "envVar": "DB_ADMIN_PORT"
+    }
+  }
+}

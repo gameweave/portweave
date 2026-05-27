@@ -1,0 +1,109 @@
+{
+  "name": "portweave",
+  "version": "0.1.0",
+  "description": "Zero-thought, conflict-free local-dev port allocation across projects and git worktrees.",
+  "license": "MIT",
+  "author": "Gameweave",
+  "homepage": "https://github.com/gameweave/portweave#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gameweave/portweave.git"
+  },
+  "bugs": "https://github.com/gameweave/portweave/issues",
+  "keywords": [
+    "port",
+    "ports",
+    "port-allocation",
+    "worktree",
+    "git-worktree",
+    "local-dev",
+    "dev-server",
+    "cli",
+    "conflict-free",
+    "monorepo",
+    "dev-tools"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./runtime": {
+      "import": "./dist/runtime/index.js",
+      "types": "./dist/runtime/index.d.ts"
+    }
+  },
+  "bin": {
+    "portweave": "dist/cli.js"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json && chmod +x dist/cli.js",
+    "typecheck": "tsx scripts/bin/typecheck.ts",
+    "lint": "tsx scripts/bin/lint.ts",
+    "lint:fix": "tsx scripts/bin/lint.ts --fix",
+    "format": "tsx scripts/bin/format.ts",
+    "format:check": "tsx scripts/bin/format.ts --check",
+    "pretest": "npm run build",
+    "test": "vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "test:watch": "vitest",
+    "dupcheck": "tsx scripts/bin/dupcheck.ts",
+    "similarity:check": "tsx scripts/bin/similarity-check.ts",
+    "deadcode:check": "tsx scripts/bin/deadcode-check.ts",
+    "structure:check": "tsx scripts/bin/structure-check.ts",
+    "complexity:check": "tsx scripts/bin/complexity-check.ts",
+    "constants:check": "tsx scripts/bin/constants-check.ts --check",
+    "docs:freshness:check": "tsx scripts/bin/docs-freshness-check.ts",
+    "upgrade:check": "tsx scripts/bin/upgrade-check.ts",
+    "ci-workflow:check": "tsx scripts/bin/ci-workflow-check.ts",
+    "dev-workflow": "tsx scripts/bin/dev-workflow.ts",
+    "task:init": "tsx scripts/bin/task-init.ts",
+    "task:add": "tsx scripts/bin/task-add.ts",
+    "task:add-batch": "tsx scripts/bin/task-add-batch.ts",
+    "task:add-group": "tsx scripts/bin/task-add-group.ts",
+    "task:status": "tsx scripts/bin/task-status.ts",
+    "task:get": "tsx scripts/bin/task-get.ts",
+    "task:next": "tsx scripts/bin/task-next.ts",
+    "task:set-status": "tsx scripts/bin/task-set-status.ts",
+    "task:check-complete": "tsx scripts/bin/task-check-complete.ts",
+    "prepare": "husky",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "commander": "^14.0.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "@types/node": "^25.9.0",
+    "@vitest/coverage-v8": "^4.1.7",
+    "constants-check": "^0.2.0",
+    "eslint": "^10.4.0",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-canonical": "^5.1.3",
+    "eslint-plugin-import-x": "^4.16.2",
+    "eslint-plugin-perfectionist": "^5.9.0",
+    "eslint-plugin-sonarjs": "^4.0.3",
+    "husky": "^9.1.7",
+    "jscpd": "^4.2.4",
+    "knip": "^6.14.2",
+    "loglevel": "^1.9.2",
+    "prettier": "~3.8.3",
+    "tsx": "^4.22.3",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.60.0",
+    "vitest": "^4.1.7",
+    "yaml": "^2.9.0"
+  },
+  "engines": {
+    "node": "^24.13.0",
+    "npm": ">=11.0.0"
+  }
+}
