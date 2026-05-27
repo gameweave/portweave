@@ -5,6 +5,7 @@
       "envVar": "API_PORT",
       "discoveryEnv": {
         "E2E_API_ORIGIN": "http://localhost:${api}",
+        "OTEL_SERVICE_NAME": "gameweave-api-${pw:namespace}",
         "VITE_API_PORT": "${api}",
         "VITE_API_URL": "http://localhost:${api}"
       }

@@ -4,6 +4,7 @@ import { synthesizeAnonymousConfig } from '../config/anonymous.ts'
 import type { Config } from '../config/index.ts'
 import { loadConfig } from '../config/loader.ts'
 import { type ResolvedEnv, resolveEnv } from '../env/index.ts'
+import { PORTWEAVE_NAMESPACE_VAR } from '../env/metadata.ts'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { resolveRegistryPath } from '../registry/paths.ts'
 import { err, type Result } from '../result.ts'
@@ -120,13 +121,12 @@ function buildVerboseLines(
   key: AllocationKey,
   env: NodeJS.ProcessEnv,
 ): string[] {
-  const registryPaths = resolveRegistryPath(env)
   const configLabel =
     config.sourcePath ??
     (config.source === 'anonymous' ? '<anonymous-mode>' : '<unknown>')
   return [
     `[portweave] config: ${configLabel}`,
-    `[portweave] registry: ${registryPaths.registryFile}`,
+    `[portweave] registry: ${resolveRegistryPath(env).registryFile}`,
     `[portweave] key: ${JSON.stringify({ gitCommonDir: key.gitCommonDir, namespace: key.namespace, worktreeRoot: key.worktreeRoot })}`,
   ]
 }
@@ -157,8 +157,9 @@ async function spawnWithBanner(ctx: SpawnBannerContext): Promise<number> {
       wroteEnvFile: true,
     }) + '\n',
   )
-  // Parent env spread last → io.env wins on conflict (DESIGN.md §7.2 row 9: process > .env > computed). Spec step-7 example is inverted.
+  // io.env wins (DESIGN.md §7.2 row 9), except PORTWEAVE_NAMESPACE re-asserted below.
   const mergedEnv: NodeJS.ProcessEnv = { ...resolvedEnv.env, ...io.env }
+  mergedEnv[PORTWEAVE_NAMESPACE_VAR] = resolvedEnv.env[PORTWEAVE_NAMESPACE_VAR]
   const spawnResult = await spawnChild(childArgs, { env: mergedEnv, io })
   if (!spawnResult.ok) {
     writeError({

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PW_METADATA_FIELDS, PW_METADATA_PREFIX } from '../env/metadata.ts'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { err, ok, type Result } from '../result.ts'
 
@@ -7,6 +8,9 @@ const ENV_VAR_PATTERN = /^[A-Z][A-Z0-9_]*$/
 const PLACEHOLDER_PATTERN = /\$\{([^}]+)\}/g
 const PORT_MIN = 1
 const PORT_MAX = 65535
+// Reserved for Portweave's own injected output vars (e.g. PORTWEAVE_NAMESPACE);
+// a user envVar/discoveryEnv key here would collide with what `run` injects.
+const RESERVED_ENV_PREFIX = 'PORTWEAVE_'
 
 const envVarSchema = z
   .string()
@@ -104,6 +108,11 @@ function recordEnvVar(
   ctx: CrossFieldContext,
 ): void {
   const owner = `services.${name}.envVar`
+  if (entry.envVar.startsWith(RESERVED_ENV_PREFIX)) {
+    ctx.errors.push(
+      `${owner}: env var "${entry.envVar}" uses the reserved "${RESERVED_ENV_PREFIX}" prefix`,
+    )
+  }
   const prior = ctx.seen.get(entry.envVar)
   if (prior !== undefined) {
     ctx.errors.push(
@@ -124,6 +133,11 @@ function checkDiscoveryEnv(
   }
   for (const [envKey, template] of Object.entries(entry.discoveryEnv)) {
     const owner = `services.${name}.discoveryEnv.${envKey}`
+    if (envKey.startsWith(RESERVED_ENV_PREFIX)) {
+      ctx.errors.push(
+        `${owner}: env var "${envKey}" uses the reserved "${RESERVED_ENV_PREFIX}" prefix`,
+      )
+    }
     const prior = ctx.seen.get(envKey)
     if (prior !== undefined) {
       ctx.errors.push(
@@ -133,12 +147,29 @@ function checkDiscoveryEnv(
       ctx.seen.set(envKey, owner)
     }
     for (const placeholder of collectPlaceholders(template)) {
-      if (!ctx.serviceNames.has(placeholder)) {
-        ctx.errors.push(
-          `${owner}: template references unknown service "${placeholder}"`,
-        )
-      }
+      checkPlaceholder(placeholder, owner, ctx)
     }
+  }
+}
+
+function checkPlaceholder(
+  placeholder: string,
+  owner: string,
+  ctx: CrossFieldContext,
+): void {
+  if (placeholder.startsWith(PW_METADATA_PREFIX)) {
+    const field = placeholder.slice(PW_METADATA_PREFIX.length)
+    if (!(PW_METADATA_FIELDS as readonly string[]).includes(field)) {
+      ctx.errors.push(
+        `${owner}: template references unknown metadata field "${field}"`,
+      )
+    }
+    return
+  }
+  if (!ctx.serviceNames.has(placeholder)) {
+    ctx.errors.push(
+      `${owner}: template references unknown service "${placeholder}"`,
+    )
   }
 }
 

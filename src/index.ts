@@ -16,7 +16,12 @@ export {
 } from './config/index.ts'
 export {
   buildEnvMap,
+  buildMetadata,
   evaluateTemplate,
+  PORTWEAVE_NAMESPACE_VAR,
+  PW_METADATA_FIELDS,
+  PW_METADATA_PREFIX,
+  type PwMetadataField,
   type ResolvedEnv,
   resolveEnv,
 } from './env/index.ts'

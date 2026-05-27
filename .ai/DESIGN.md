@@ -204,22 +204,22 @@ Gameweave drops it in and gets identical behavior plus the new guarantee.
 
 ### 7.2 Parity checklist
 
-| #   | Gameweave capability                                                                        | Source (Gameweave's internal system)              | Portweave v0 equivalent                                                                  |
-| --- | ------------------------------------------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 1   | Offset/block allocation                                                                     | `packages/shared/src/worktree-ports.ts`           | Per-worktree block from machine-wide pool                                                |
-| 2   | File-locked JSON registry with retry + stale-lock cleanup                                   | `scripts/src/utils/worktree-context-registry.ts`  | Same pattern at `~/.config/portweave/registry.json`                                      |
-| 3   | Git worktree detection (`rev-parse`, `worktree list`)                                       | `scripts/src/utils/worktree-context-git.ts`       | Same; cwd fallback for non-git dirs                                                      |
-| 4   | Namespace derivation (main vs. feature-slug-hash)                                           | `scripts/src/utils/worktree-context-namespace.ts` | Same; exposed via `PORTWEAVE_NAMESPACE` for PM2/log consumers                            |
-| 5   | Env-var injection for named services                                                        | `scripts/src/utils/apply-worktree-env.ts`         | Same; driven by `portweave.config.json`                                                  |
-| 6   | Service-discovery URL construction (`WEBSOCKET_ENDPOINT`, `VITE_API_URL`, `E2E_API_ORIGIN`) | `apply-worktree-env.ts`                           | Config supports `urlTemplate` per service: `WEBSOCKET_ENDPOINT = "ws://localhost:${ws}"` |
-| 7   | Stale-entry pruning + last-used timestamps                                                  | `worktree-context-registry.ts`                    | Same                                                                                     |
-| 8   | Explicit manual override (`GAMEWEAVE_WORKTREE_OFFSET` / `GAMEWEAVE_PM2_NAMESPACE`)          | `worktree-context-namespace.ts`                   | `PORTWEAVE_OFFSET` / `PORTWEAVE_NAMESPACE`                                               |
-| 9   | `.env` seeding (dotenv-first, user overrides take priority)                                 | `apply-worktree-env.ts`                           | Same                                                                                     |
-| 10  | Multi-port services (Kinesis 4567 + 4568 move together)                                     | `ecosystem.config.cjs` (header comment)           | Config supports service groups so paired ports allocate as a unit                        |
-| 11  | E2E helper (configure Playwright env)                                                       | `scripts/src/utils/e2e-port-env.ts`               | Same pattern via library helper + CLI                                                    |
-| 12  | Wrapper CLI entry point                                                                     | `scripts/bin/dev.ts`                              | `portweave run -- <cmd>`                                                                 |
-| 13  | **NEW:** Live conflict detection (port already bound by external process)                   | not in Gameweave                                  | `net.createServer().listen()` probe before claim; re-roll if taken                       |
-| 14  | **NEW:** Cross-project collision protection                                                 | not in Gameweave                                  | Machine-wide pool is the whole point                                                     |
+| #   | Gameweave capability                                                                        | Source (Gameweave's internal system)              | Portweave v0 equivalent                                                                            |
+| --- | ------------------------------------------------------------------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 1   | Offset/block allocation                                                                     | `packages/shared/src/worktree-ports.ts`           | Per-worktree block from machine-wide pool                                                          |
+| 2   | File-locked JSON registry with retry + stale-lock cleanup                                   | `scripts/src/utils/worktree-context-registry.ts`  | Same pattern at `~/.config/portweave/registry.json`                                                |
+| 3   | Git worktree detection (`rev-parse`, `worktree list`)                                       | `scripts/src/utils/worktree-context-git.ts`       | Same; cwd fallback for non-git dirs                                                                |
+| 4   | Namespace derivation (main vs. feature-slug-hash)                                           | `scripts/src/utils/worktree-context-namespace.ts` | Same; exposed via `PORTWEAVE_NAMESPACE` for PM2/log consumers — ✓ implemented (metadata-injection) |
+| 5   | Env-var injection for named services                                                        | `scripts/src/utils/apply-worktree-env.ts`         | Same; driven by `portweave.config.json`                                                            |
+| 6   | Service-discovery URL construction (`WEBSOCKET_ENDPOINT`, `VITE_API_URL`, `E2E_API_ORIGIN`) | `apply-worktree-env.ts`                           | Config supports `urlTemplate` per service: `WEBSOCKET_ENDPOINT = "ws://localhost:${ws}"`           |
+| 7   | Stale-entry pruning + last-used timestamps                                                  | `worktree-context-registry.ts`                    | Same                                                                                               |
+| 8   | Explicit manual override (`GAMEWEAVE_WORKTREE_OFFSET` / `GAMEWEAVE_PM2_NAMESPACE`)          | `worktree-context-namespace.ts`                   | `PORTWEAVE_OFFSET` / `PORTWEAVE_NAMESPACE`                                                         |
+| 9   | `.env` seeding (dotenv-first, user overrides take priority)                                 | `apply-worktree-env.ts`                           | Same                                                                                               |
+| 10  | Multi-port services (Kinesis 4567 + 4568 move together)                                     | `ecosystem.config.cjs` (header comment)           | Config supports service groups so paired ports allocate as a unit                                  |
+| 11  | E2E helper (configure Playwright env)                                                       | `scripts/src/utils/e2e-port-env.ts`               | Same pattern via library helper + CLI                                                              |
+| 12  | Wrapper CLI entry point                                                                     | `scripts/bin/dev.ts`                              | `portweave run -- <cmd>`                                                                           |
+| 13  | **NEW:** Live conflict detection (port already bound by external process)                   | not in Gameweave                                  | `net.createServer().listen()` probe before claim; re-roll if taken                                 |
+| 14  | **NEW:** Cross-project collision protection                                                 | not in Gameweave                                  | Machine-wide pool is the whole point                                                               |
 
 ### 7.3 Drop-in adoption test (v0 verification criterion)
 
@@ -229,7 +229,7 @@ After v0 ships, Gameweave should be migratable in a single PR:
 2. Delete `packages/shared/src/worktree-ports.ts`
 3. Add `portweave.config.json` declaring Gameweave's 8 services with their env-var names and URL templates
 4. Change `scripts/bin/dev.ts` to invoke `portweave run` before its existing PM2 startup
-5. Update PM2 ecosystem config to read process-name suffix from `PORTWEAVE_NAMESPACE` instead of internal helpers
+5. Update PM2 ecosystem config to read process-name suffix from `PORTWEAVE_NAMESPACE` instead of internal helpers — `portweave run` now injects `PORTWEAVE_NAMESPACE` (and a `${pw:*}` template sigil); see the metadata-injection feature. Gameweave can also delete its own `deriveNamespace` and read the env var.
 6. **Acceptance:** all e2e tests still pass; worktree behavior identical from a user's POV; the e2e suite at `packages/e2e/` runs green in both `main` and at least one feature worktree simultaneously
 
 ### 7.4 Out-of-scope for v0 (genuinely deferred)

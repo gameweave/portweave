@@ -115,6 +115,39 @@ describe('buildEnvMap', () => {
     expect(result.E2E_API_ORIGIN).toBe('http://localhost:3104')
     expect(result.VITE_WS_URL).toBe('ws://localhost:3105')
     expect(result.WEBSOCKET_ENDPOINT).toBe('http://localhost:3105')
+
+    // Baseline reserved var: the namespace Portweave allocated under
+    expect(result.PORTWEAVE_NAMESPACE).toBe('feature-x-7a2b91')
+  })
+
+  it('always emits PORTWEAVE_NAMESPACE for the main worktree too', () => {
+    const mainAllocation: Allocation = {
+      ...appendixBAllocation,
+      key: { ...appendixBAllocation.key, namespace: 'main' },
+      namespace: 'main',
+    }
+    const result = buildEnvMap(mainAllocation, appendixAConfig)
+    expect(result.PORTWEAVE_NAMESPACE).toBe('main')
+  })
+
+  it('resolves ${pw:*} placeholders inside discoveryEnv', () => {
+    const config: Config = {
+      groups: {},
+      services: [
+        {
+          discoveryEnv: {
+            OTEL_SERVICE_NAME: 'gw-${pw:namespace}',
+            UPSTREAM: 'http://localhost:${api}',
+          },
+          envVar: 'API_PORT',
+          name: 'api',
+        },
+      ],
+      source: 'file',
+    }
+    const result = buildEnvMap(appendixBAllocation, config)
+    expect(result.OTEL_SERVICE_NAME).toBe('gw-feature-x-7a2b91')
+    expect(result.UPSTREAM).toBe('http://localhost:3104')
   })
 
   it('throws PW0501 when a service port is missing from the allocation', () => {
@@ -167,6 +200,6 @@ describe('buildEnvMap', () => {
       ports: { api: 30000 },
     }
     const result = buildEnvMap(allocation, singleServiceConfig)
-    expect(result).toEqual({ API_PORT: '30000' })
+    expect(result).toEqual({ API_PORT: '30000', PORTWEAVE_NAMESPACE: 'main' })
   })
 })

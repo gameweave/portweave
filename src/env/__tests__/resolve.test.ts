@@ -139,4 +139,36 @@ describe('resolveEnv', () => {
     // Computed values used when no .env
     expect(result.value.env.API_PORT).toBe('30100')
   })
+
+  it('writes PORTWEAVE_NAMESPACE to env and current.env', async () => {
+    const projectRoot = await makeTmpDir()
+    const result = await resolveEnv(testAllocation, testConfig, projectRoot)
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value.env.PORTWEAVE_NAMESPACE).toBe('main')
+    const written = await readFile(result.value.currentEnvPath, 'utf-8')
+    expect(written).toContain('PORTWEAVE_NAMESPACE=main')
+  })
+
+  it('PORTWEAVE_NAMESPACE is authoritative: a .env hijack does not change it', async () => {
+    const projectRoot = await makeTmpDir()
+    await writeFile(
+      join(projectRoot, '.env'),
+      'PORTWEAVE_NAMESPACE=hijack\n',
+      'utf-8',
+    )
+
+    const result = await resolveEnv(testAllocation, testConfig, projectRoot)
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    // .env value is ignored — the reported namespace is the one allocated
+    expect(result.value.env.PORTWEAVE_NAMESPACE).toBe('main')
+    const written = await readFile(result.value.currentEnvPath, 'utf-8')
+    expect(written).toContain('PORTWEAVE_NAMESPACE=main')
+    expect(written).not.toContain('PORTWEAVE_NAMESPACE=hijack')
+  })
 })
