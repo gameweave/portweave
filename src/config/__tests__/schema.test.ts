@@ -291,6 +291,77 @@ describe('validateAndNormalizeConfig — cross-field refinements', () => {
     expect(result.error.message).toContain('SAME_PORT')
   })
 
+  it('accepts ${pw:*} metadata placeholders in discoveryEnv', () => {
+    const result = validateAndNormalizeConfig(
+      {
+        services: {
+          api: {
+            discoveryEnv: {
+              APP_ROOT: '${pw:worktreeRoot}',
+              OTEL_SERVICE_NAME: 'gw-${pw:namespace}',
+            },
+            envVar: 'API_PORT',
+          },
+        },
+      },
+      { source: 'file' },
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it('rejects an unknown ${pw:*} metadata field', () => {
+    const result = validateAndNormalizeConfig(
+      {
+        services: {
+          api: {
+            discoveryEnv: { LABEL: 'gw-${pw:bogus}' },
+            envVar: 'API_PORT',
+          },
+        },
+      },
+      { source: 'file' },
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) {
+      return
+    }
+    expect(result.error.code).toBe(PW_ERROR_CODES.CONFIG_INVALID)
+    expect(result.error.message).toContain('bogus')
+  })
+
+  it('rejects an envVar using the reserved PORTWEAVE_ prefix', () => {
+    const result = validateAndNormalizeConfig(
+      { services: { api: { envVar: 'PORTWEAVE_NAMESPACE' } } },
+      { source: 'file' },
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) {
+      return
+    }
+    expect(result.error.code).toBe(PW_ERROR_CODES.CONFIG_INVALID)
+    expect(result.error.message).toContain('PORTWEAVE_')
+  })
+
+  it('rejects a discoveryEnv key using the reserved PORTWEAVE_ prefix', () => {
+    const result = validateAndNormalizeConfig(
+      {
+        services: {
+          api: {
+            discoveryEnv: { PORTWEAVE_EXTRA: 'http://${api}' },
+            envVar: 'API_PORT',
+          },
+        },
+      },
+      { source: 'file' },
+    )
+    expect(result.ok).toBe(false)
+    if (result.ok) {
+      return
+    }
+    expect(result.error.code).toBe(PW_ERROR_CODES.CONFIG_INVALID)
+    expect(result.error.message).toContain('PORTWEAVE_')
+  })
+
   it('rejects duplicate identifier across envVar and discoveryEnv key', () => {
     const result = validateAndNormalizeConfig(
       {

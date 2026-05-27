@@ -8,6 +8,7 @@ import {
 import { err, ok, type Result } from '../result.ts'
 import { buildEnvMap } from './build.ts'
 import { applyDotenvOverrides, readDotenvFile } from './dotenv-merge.ts'
+import { PORTWEAVE_NAMESPACE_VAR } from './metadata.ts'
 import { atomicWriteDotenv, ensurePortweaveDir } from './writer.ts'
 
 export interface ResolvedEnv {
@@ -38,6 +39,11 @@ export async function resolveEnv(
   }
 
   const final = applyDotenvOverrides(computed, dotenvResult.value)
+  // PORTWEAVE_NAMESPACE is an authoritative report of the namespace Portweave
+  // used to allocate — not a user-tunable default. Re-assert it past the .env
+  // override so a `.env` entry can't make the reported value diverge from the
+  // value the registry was keyed under. (run.ts does the same past process env.)
+  final[PORTWEAVE_NAMESPACE_VAR] = allocation.namespace
   const { created } = await ensurePortweaveDir(projectRoot)
   const currentEnvPath = resolve(projectRoot, '.portweave/current.env')
   await atomicWriteDotenv(currentEnvPath, final)

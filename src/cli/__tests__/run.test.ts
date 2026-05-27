@@ -68,6 +68,34 @@ describe('runCommand — orchestration', () => {
     expect(envFile).toContain(`API_PORT=${portValue}`)
   })
 
+  it('injects PORTWEAVE_NAMESPACE; a stray parent value does not shadow it', async () => {
+    const outFile = join(tmpDir, 'ns-output.txt')
+    const base = makeCapturingIo(tmpDir)
+    // Parent env carries a raw PORTWEAVE_NAMESPACE; the child must still see the
+    // namespace Portweave allocated under ('main' for a fresh repo's main tree).
+    const io = {
+      ...base,
+      env: { ...process.env, PORTWEAVE_NAMESPACE: 'bogus-parent-value' },
+    }
+    const code = await runCommand(
+      [
+        'node',
+        '-e',
+        `require('fs').writeFileSync('${outFile}', process.env.PORTWEAVE_NAMESPACE ?? 'MISSING')`,
+      ],
+      { verbose: false },
+      io,
+    )
+    expect(code).toBe(0)
+    expect(await readFile(outFile, 'utf8')).toBe('main')
+
+    const envFile = await readFile(
+      join(tmpDir, '.portweave', 'current.env'),
+      'utf8',
+    )
+    expect(envFile).toContain('PORTWEAVE_NAMESPACE=main')
+  })
+
   it('banner lines go to stderr not stdout', async () => {
     const io = makeCapturingIo(tmpDir)
     await runCommand(['node', '-e', 'process.exit(0)'], { verbose: false }, io)
