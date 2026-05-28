@@ -309,3 +309,85 @@ describe('current.env side-effect matches env() result', () => {
     }
   })
 })
+
+describe('.env override semantics', () => {
+  it('ports() applies .env overrides for service envVars', async () => {
+    const projectRoot = await makeFixtureProject('ports-override')
+    await writeFile(join(projectRoot, '.env'), 'WEB_PORT=6766\nAPI_PORT=6767\n')
+    const result = await ports({ cwd: projectRoot })
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value.web).toBe(6766)
+    expect(result.value.api).toBe(6767)
+  })
+
+  it('env() applies .env overrides for service envVars', async () => {
+    const projectRoot = await makeFixtureProject('env-override')
+    await writeFile(join(projectRoot, '.env'), 'WEB_PORT=6766\n')
+    const result = await env({ cwd: projectRoot })
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value.WEB_PORT).toBe('6766')
+  })
+
+  it('allocation() returns raw allocation, ignoring .env overrides', async () => {
+    const projectRoot = await makeFixtureProject('alloc-ignores-override')
+    await writeFile(join(projectRoot, '.env'), 'WEB_PORT=6766\n')
+    const result = await allocation({ cwd: projectRoot })
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    // Raw allocator output lives in the configured pool range (default 30000–60000),
+    // not the override value.
+    expect(result.value.ports.web).not.toBe(6766)
+    expect(result.value.ports.web).toBeGreaterThanOrEqual(30000)
+  })
+
+  it('ports() returns PW0503 when a .env override is not a valid port integer', async () => {
+    const projectRoot = await makeFixtureProject('ports-bad-override')
+    await writeFile(join(projectRoot, '.env'), 'WEB_PORT=not-a-number\n')
+    const result = await ports({ cwd: projectRoot })
+    expect(result.ok).toBe(false)
+    if (result.ok) {
+      return
+    }
+    expect(result.error.code).toBe(
+      PW_ERROR_CODES.ENV_DOTENV_PORT_OVERRIDE_INVALID,
+    )
+    expect(result.error.message).toContain('WEB_PORT')
+    expect(result.error.message).toContain('not-a-number')
+  })
+
+  it('ports() returns PW0503 when a .env override is out of port range', async () => {
+    const projectRoot = await makeFixtureProject('ports-oor-override')
+    await writeFile(join(projectRoot, '.env'), 'WEB_PORT=70000\n')
+    const result = await ports({ cwd: projectRoot })
+    expect(result.ok).toBe(false)
+    if (result.ok) {
+      return
+    }
+    expect(result.error.code).toBe(
+      PW_ERROR_CODES.ENV_DOTENV_PORT_OVERRIDE_INVALID,
+    )
+  })
+
+  it('ports() and env() agree on the overridden numeric port', async () => {
+    const projectRoot = await makeFixtureProject('ports-env-agree')
+    await writeFile(join(projectRoot, '.env'), 'WEB_PORT=6766\n')
+    const [portsResult, envResult] = await Promise.all([
+      ports({ cwd: projectRoot }),
+      env({ cwd: projectRoot }),
+    ])
+    expect(portsResult.ok).toBe(true)
+    expect(envResult.ok).toBe(true)
+    if (!portsResult.ok || !envResult.ok) {
+      return
+    }
+    expect(String(portsResult.value.web)).toBe(envResult.value.WEB_PORT)
+  })
+})

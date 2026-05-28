@@ -429,7 +429,7 @@ Move those names into `portweave.config.json` and let Portweave compute them:
 }
 ```
 
-Then wrap your dev/test scripts with `portweave run --`. A project `.env` still works for _non-port_ settings; Portweave only overrides the keys it computes, and leaves everything else for your existing dotenv loader. If you set one of Portweave's keys in `.env`, that value wins over the computed one — useful for pinning a single port locally.
+Then wrap your dev/test scripts with `portweave run --`. A project `.env` still works for _non-port_ settings; Portweave only overrides the keys it computes, and leaves everything else for your existing dotenv loader. If you set one of Portweave's keys in `.env`, that value wins over the computed one — useful for pinning a single port locally. The override applies uniformly: through `portweave run` into the child process, through the `ports()` and `env()` runtime APIs, and into `.portweave/current.env`. If your prior setup only honored `.env` along some paths (e.g. only e2e tests sourced it), expect every path to honor it under Portweave.
 
 ### From a hand-rolled `base + offset` convention
 
@@ -461,16 +461,21 @@ For config files and scripts that need the allocation before a child process exi
 import { ports, env, allocation } from 'portweave/runtime'
 
 // ports() → Result<Record<string, number>, PortweaveError>
+// Per-service numeric ports, with `.env` overrides applied. Use this when you
+// need to bind a server or pass a port number to a child process.
 const p = await ports()
-if (p.ok) console.log(p.value.api) // 30002
+if (p.ok) console.log(p.value.api) // 30002, or your .env override if set
 
 // env() → Result<Record<string, string>, PortweaveError>
-// The full computed env map, including discoveryEnv URLs.
+// The full computed env map, including discoveryEnv URLs. `.env` overrides
+// are applied to envVar keys; discovery templates still resolve against the
+// allocated port (see decision-log #26).
 const e = await env()
 if (e.ok) console.log(e.value.DATABASE_URL)
 
 // allocation() → Result<Allocation, PortweaveError>
-// The complete allocation: namespace, ports, and worktree key.
+// The raw allocation: namespace, ports, and worktree key. Does NOT apply
+// `.env` overrides — use for introspection / debugging, not for binding.
 const a = await allocation()
 if (a.ok) console.log(a.value.namespace)
 ```
@@ -498,6 +503,7 @@ Errors carry a stable `PW####` code, printed as `[portweave] error: <message> (<
 | `PW0302` | The registry JSON is corrupt.                                                 | Inspect `~/.config/portweave/registry.json`; fix or delete it (it will be recreated).                                                                                        |
 | `PW0401` | No free port block large enough in the pool.                                  | Widen the pool with `PORTWEAVE_POOL_RANGE`, or remove stale entries from the registry.                                                                                       |
 | `PW0502` | A `.env` line could not be parsed.                                            | The message names the line number; fix or quote the value.                                                                                                                   |
+| `PW0503` | A `.env` override for a service envVar is not a valid port in [1, 65535].     | Fix the value in `.env` (only emitted by the runtime `ports()` API; `env()` returns the literal string).                                                                     |
 | `PW0601` | Invalid CLI flags (e.g. `--config` with `--count`, or no command after `--`). | Correct the invocation.                                                                                                                                                      |
 | `PW0602` | The command after `--` could not be spawned (exit `127`).                     | Check the command exists and is on `PATH`.                                                                                                                                   |
 | `PW0701` | The runtime API found no config and was given no `count`.                     | Pass `{ count }`, `{ configPath }`, or add a `portweave.config.json`.                                                                                                        |
