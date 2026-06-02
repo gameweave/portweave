@@ -54,8 +54,17 @@ export async function main(
   }
 }
 
-// Entry point when run as a script
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Entry point when run as a script.
+//
+// `import.meta.main` (Node 24+) is true only when this module is the process
+// entry. The previous check compared `import.meta.url` to `file://${argv[1]}`,
+// which silently failed whenever cli.js was reached through a symlink — the
+// standard npm bin link (node_modules/.bin/portweave -> dist/cli.js), a global
+// install, or a symlinked path (e.g. macOS /tmp -> /private/tmp). import.meta.url
+// is the realpath while argv[1] is the unresolved invocation path, so they never
+// matched and main() never ran: `portweave run` exited 0 with no output. The
+// symlink case is covered by src/__tests__/cli.test.ts.
+if (import.meta.main) {
   void main().then((code) => {
     process.exit(code)
   })
