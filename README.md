@@ -74,6 +74,8 @@ yarn add -D portweave
 
 Portweave is a dev dependency. Invoke it with `npx portweave …` or from a `package.json` script — there is no global install and no `portweave init`. Requires Node.js 24 or newer.
 
+**Supported platforms:** macOS and Linux, both exercised by CI on every change. Windows is not supported at this time.
+
 Add the per-project output directory to your `.gitignore`:
 
 ```gitignore
@@ -131,7 +133,7 @@ Run the same command again from the same worktree and you get the **same** ports
 
 - **Sticky, per-worktree allocations.** Each allocation is keyed on the worktree's git common directory, its derived namespace, and its path on disk. The same worktree gets the same ports across restarts and across terminals; a different worktree of the same repo gets a different block. The main worktree's namespace is `main`; other worktrees derive a namespace like `feature-auth-7a2b91c3` (a slug from the directory name plus a short hash of its path). Directories that are not git repositories fall back to using the directory itself as the key.
 
-- **Live conflict detection.** Before claiming a block, Portweave opens a TCP listener on each candidate port. If something external (a system Postgres, another tool) already holds a port, Portweave re-rolls and picks a free block instead.
+- **Live conflict detection.** Before claiming a _new_ block, Portweave opens a TCP listener on each candidate port. If something external (a system Postgres, another tool) already holds a port, Portweave re-rolls and picks a free block instead. This probe runs only when allocating a fresh block — re-running in a worktree that already has an allocation always returns the same block, even when that worktree's own servers are currently bound to those ports, so a config file that resolves its port after sibling services are already up stays in sync with the injected env.
 
 - **Two outputs from one code path.** `portweave run` injects the allocated ports as environment variables into the child process **and** writes the same values to `.portweave/current.env`. Use the injected env directly for anything launched by `portweave run`; use the file for tools that evaluate before the child inherits an environment — Docker Compose, Vite/Next config files, IDE run configurations.
 

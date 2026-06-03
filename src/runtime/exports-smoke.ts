@@ -21,11 +21,17 @@ export const FIXTURE_CONSUMER_CONFIG = JSON.stringify({
 export async function makeConsumerProject(
   consumerDir: string,
   packFile: string,
+  typesNodeSpec: string,
 ): Promise<void> {
+  // A realistic TypeScript Node consumer installs @types/node — the published
+  // .d.ts references the global `NodeJS` namespace (e.g. ProcessEnv), as is
+  // normal for a Node-targeted package. Pin it to the repo's version so the
+  // type check mirrors the types the package was built against.
   await writeFile(
     join(consumerDir, 'package.json'),
     JSON.stringify({
       dependencies: { portweave: `file:${packFile}` },
+      devDependencies: { '@types/node': typesNodeSpec },
       name: 'smoke-consumer',
       type: 'module',
       version: '0.0.0',

@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # Keep the SHA-pinned GitHub Actions current — Dependabot bumps the pin and
+  # updates the trailing version comment, so pinning doesn't mean staleness.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+
+  # npm dependencies. Group dev-dependency bumps into a single PR to cut noise;
+  # runtime deps get individual PRs so they're reviewed on their own.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
+    groups:
+      dev-dependencies:
+        dependency-type: development

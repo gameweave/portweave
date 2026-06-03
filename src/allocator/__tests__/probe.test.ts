@@ -26,6 +26,17 @@ describe('probePort', () => {
     const result = await probePort(TEST_PORT_BASE + 1)
     expect(result).toBe('taken')
   })
+
+  it('returns "taken" for a port bound on 0.0.0.0 (connection-probe fallback)', async () => {
+    // A listener bound to 0.0.0.0 does not block a 127.0.0.1 bind on macOS, so
+    // this exercises the connection-probe step rather than the bind check —
+    // catching external 0.0.0.0 listeners (e.g. Docker port mappings) that the
+    // old loopback-only probe missed.
+    const server = await bindServerOnPort(TEST_PORT_BASE + 2, '0.0.0.0')
+    boundClose = server.close
+    const result = await probePort(TEST_PORT_BASE + 2)
+    expect(result).toBe('taken')
+  })
 })
 
 describe('probeBlock', () => {

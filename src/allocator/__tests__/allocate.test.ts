@@ -117,42 +117,59 @@ describe('allocate — stickiness (reuse path)', () => {
   })
 })
 
-describe('allocate — live-conflict reuse invalidation', () => {
-  it('allocates a fresh block when a stored port is externally bound', async () => {
-    const wt = await addWorktreeDir(dirs)
-    const config = makeAllocatorConfig([
-      { envVar: 'API_PORT', name: 'api' },
-      { envVar: 'VITE_PORT', name: 'vite' },
-    ])
-    const key = makeAllocationKey(wt)
+describe('allocate — idempotent reuse while allocated ports are bound (regression)', () => {
+  // Regression: a second allocate() for the same key must return the EXISTING
+  // block even when its ports are currently bound — a bound port for an
+  // allocation already owned by this key is the normal runtime state (the
+  // caller's own services are up), not a conflict. The reuse path must not
+  // probe-and-evict. See decision-log #37.
+  const config = makeAllocatorConfig([
+    { envVar: 'API_PORT', name: 'api' },
+    { envVar: 'VITE_PORT', name: 'vite' },
+    { envVar: 'WS_PORT', name: 'ws' },
+  ])
 
+  interface BoundServer {
+    close: () => Promise<void>
+  }
+
+  async function expectReuseStableWhileBound(
+    bind: (allocatedPorts: number[]) => Promise<BoundServer[]>,
+  ): Promise<void> {
+    const key = makeAllocationKey(await addWorktreeDir(dirs))
     const first = await allocate(key, config, env())
     expect(first.ok).toBe(true)
     if (!first.ok) {
       return
     }
-
-    const firstPorts = Object.values(first.value.allocation.ports)
-
-    // Externally bind one of the allocated ports
-    const takenPort = firstPorts[0]
-    const server = await bindServerOnPort(takenPort)
-
+    const allocated = first.value.allocation.ports
+    const servers = await bind(Object.values(allocated))
     try {
       const second = await allocate(key, config, env())
-      expect(second.ok).toBe(true)
-      if (!second.ok) {
-        return
-      }
-
-      expect(second.value.reused).toBe(false)
-      // New allocation must not include the externally-bound port
-      const newPorts = Object.values(second.value.allocation.ports)
-      expect(newPorts).not.toContain(takenPort)
+      expect(second.ok && second.value.reused).toBe(true)
+      const reusedPorts = second.ok ? second.value.allocation.ports : null
+      expect(reusedPorts).toEqual(allocated)
     } finally {
-      await server.close()
+      await Promise.all(servers.map((server) => server.close()))
     }
-  })
+  }
+
+  it('stays on the same block when an allocated port is bound on 127.0.0.1', () =>
+    expectReuseStableWhileBound((ports) =>
+      Promise.all([bindServerOnPort(ports[0])]),
+    ))
+
+  // 0.0.0.0 (the common bind-all default) also occupies the loopback port on
+  // most platforms, so the old probe-and-evict could reallocate here too.
+  it('stays on the same block when an allocated port is bound on 0.0.0.0', () =>
+    expectReuseStableWhileBound((ports) =>
+      Promise.all([bindServerOnPort(ports[0], '0.0.0.0')]),
+    ))
+
+  it('stays on the same block when every allocated port is bound', () =>
+    expectReuseStableWhileBound((ports) =>
+      Promise.all(ports.map((port) => bindServerOnPort(port))),
+    ))
 })
 
 describe('allocate — skip-on-probe-fail (fresh path)', () => {

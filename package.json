@@ -50,6 +50,7 @@
     "format": "tsx scripts/bin/format.ts",
     "format:check": "tsx scripts/bin/format.ts --check",
     "pretest": "npm run build",
+    "pretest:coverage": "npm run build",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage --passWithNoTests",
     "test:watch": "vitest",

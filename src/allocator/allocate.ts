@@ -4,7 +4,7 @@ import { err, ok, type Result } from '../result.ts'
 import { withRegistry, type WithRegistryHandle } from '../registry/storage.ts'
 import type { AllocationKey, RegistryEntry } from '../registry/types.ts'
 import { findFreeBlock, type PoolRange, resolvePoolRange } from './pool.ts'
-import { probeBlock, probePort } from './probe.ts'
+import { probeBlock } from './probe.ts'
 
 // Allocation is the conceptual layer on top of a RegistryEntry — same shape,
 // re-exported here so downstream features depend on the allocator's surface
@@ -67,21 +67,23 @@ function buildPortsMap(
   return ports
 }
 
-async function tryReuseExisting(
+function tryReuseExisting(
   handle: WithRegistryHandle,
   key: AllocationKey,
-): Promise<AllocationResult | null> {
+): AllocationResult | null {
   const existing = handle.entries.find((e) => keysEqual(e.key, key))
   if (existing === undefined) {
     return null
   }
-  for (const port of Object.values(existing.ports)) {
-    const probeResult = await probePort(port)
-    if (probeResult === 'taken') {
-      handle.remove(key)
-      return null
-    }
-  }
+  // Reuse is unconditional: an existing entry for this key is returned as-is,
+  // without probing its ports. A port bound by this allocation's own services
+  // is the normal runtime state, not a conflict — and a loopback probe cannot
+  // tell "my own server" from "an external squatter" anyway. Re-rolling on the
+  // former breaks idempotency for config consumers that read ports()/env()
+  // after sibling services are already up. Cross-project conflicts are
+  // prevented at fresh-allocation time (distinct keys get distinct blocks);
+  // stale entries are handled by age-based pruning in withRegistry, not here.
+  // See decision-log #37.
   handle.touch(key)
   const touched = handle.entries.find((e) => keysEqual(e.key, key))
   return { allocation: touched ?? existing, reused: true }
@@ -151,7 +153,7 @@ export async function allocate(
   // the inner carries allocator-level errors.
   const outer = await withRegistry(
     async (handle): Promise<Result<AllocationResult, PortweaveError>> => {
-      const reused = await tryReuseExisting(handle, key)
+      const reused = tryReuseExisting(handle, key)
       if (reused !== null) {
         return ok(reused)
       }

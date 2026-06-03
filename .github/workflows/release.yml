@@ -1,0 +1,41 @@
+name: Release
+
+# Publishes to npm when a GitHub Release is published. Create the release from a
+# green commit on main (tag e.g. v0.3.2). The job re-runs the full quality gate
+# before publishing, so a red build can never ship.
+#
+# One-time setup (in the repo / npm account):
+#   - Add an `NPM_TOKEN` repository secret (an npm automation/granular token with
+#     publish rights), OR configure npm Trusted Publishing for this repo and drop
+#     the NODE_AUTH_TOKEN line below.
+#   - Keep npm account 2FA enabled.
+on:
+  release:
+    types: [published]
+
+# id-token: write lets npm attach build provenance (a signed, verifiable link
+# from the published tarball back to this workflow run) via OIDC.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      # Final gate before shipping — full suite incl. the package-export smoke
+      # tests. (similarity:check self-skips without a Rust toolchain.)
+      - run: npm run dev-workflow
+        env:
+          RUN_SMOKE_TESTS: '1'
+      # prepublishOnly builds dist/; --provenance emits the OIDC attestation.
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
