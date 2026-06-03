@@ -1,6 +1,6 @@
 {
   "name": "portweave",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "description": "Zero-thought, conflict-free local-dev port allocation across projects and git worktrees.",
   "license": "MIT",
   "author": "Gameweave",
@@ -50,6 +50,7 @@
     "format": "tsx scripts/bin/format.ts",
     "format:check": "tsx scripts/bin/format.ts --check",
     "pretest": "npm run build",
+    "pretest:coverage": "npm run build",
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage --passWithNoTests",
     "test:watch": "vitest",

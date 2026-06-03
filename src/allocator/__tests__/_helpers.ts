@@ -51,11 +51,12 @@ function closeServer(server: Server): Promise<void> {
 
 export function bindServerOnPort(
   port: number,
+  host = '127.0.0.1',
 ): Promise<{ close: () => Promise<void> }> {
   return new Promise((resolve, reject) => {
     const server = createServer()
     server.once('error', reject)
-    server.listen(port, '127.0.0.1', () => {
+    server.listen(port, host, () => {
       resolve({ close: () => closeServer(server) })
     })
   })

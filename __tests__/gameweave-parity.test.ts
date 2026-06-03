@@ -848,6 +848,80 @@ async function testStickiness(fx: TestFixture): Promise<void> {
   expect(JSON.stringify(secondShow.ports)).toBe(JSON.stringify(firstShow.ports))
 }
 
+async function testReuseWhileBound(fx: TestFixture): Promise<void> {
+  // Regression (decision-log #37): once the caller's own services are bound to
+  // their allocated ports, a second resolution for the same worktree — whether
+  // via `portweave run` or the runtime `ports()` API in a separate process —
+  // must return the SAME block, never reallocate. Reproduces the downstream
+  // failure where a config file resolved its port after sibling services were
+  // already up and got a different block. Binds on 127.0.0.1 so the (pre-fix)
+  // loopback probe deterministically sees the ports as taken on every platform.
+  const env = makeEnv(fx.xdgConfigHome)
+
+  await runNoop(fx.mainDir, env)
+  const firstShow = await showJson(fx.mainDir, fx.xdgConfigHome)
+  const allocatedPorts = Object.values(firstShow.ports)
+  expect(allocatedPorts.length).toBeGreaterThan(0)
+
+  // Bring every allocated port "up" on loopback, as the worktree's own services
+  // would after `portweave run` injected them.
+  const servers: net.Server[] = []
+  for (const port of allocatedPorts) {
+    const server = await bindPort(port)
+    servers.push(server)
+    ALL_SERVERS.push(server)
+  }
+
+  try {
+    // 1) CLI reuse path: re-running while bound must not reallocate.
+    await runNoop(fx.mainDir, env)
+    const secondShow = await showJson(fx.mainDir, fx.xdgConfigHome)
+    expect(
+      secondShow.ports,
+      'CLI re-run reallocated while ports were bound',
+    ).toEqual(firstShow.ports)
+
+    // 2) Runtime API path (the actual failing surface): a separate process that
+    // imports the built runtime and calls ports() while the ports are bound
+    // must resolve the same block.
+    const runtimeIndexPath = resolveRuntimeIndexPath()
+    const consumerPath = path.join(fx.mainDir, 'resolve-while-bound.mjs')
+    fs.writeFileSync(
+      consumerPath,
+      [
+        `import { ports } from '${runtimeIndexPath}'`,
+        `const result = await ports()`,
+        `if (!result.ok) { process.stderr.write(result.error.message + '\\n'); process.exit(1); }`,
+        `console.log(JSON.stringify(result.value))`,
+      ].join('\n'),
+      'utf8',
+    )
+    const { stdout } = await execFileAsync(process.execPath, [consumerPath], {
+      cwd: fx.mainDir,
+      env: { ...process.env, ...env },
+    })
+    const runtimePorts = JSON.parse(stdout.trim()) as Record<string, number>
+    expect(
+      runtimePorts,
+      'runtime ports() reallocated while ports were bound',
+    ).toEqual(firstShow.ports)
+
+    try {
+      fs.rmSync(consumerPath)
+    } catch {
+      // pw-allow-swallow: best-effort cleanup of temp test file — not load-bearing
+    }
+  } finally {
+    for (const server of servers) {
+      await closeServer(server)
+      const idx = ALL_SERVERS.indexOf(server)
+      if (idx !== -1) {
+        ALL_SERVERS.splice(idx, 1)
+      }
+    }
+  }
+}
+
 async function testConcurrency(fx: TestFixture): Promise<void> {
   const env = makeEnv(fx.xdgConfigHome)
   const [r1, r2] = await Promise.all([
@@ -1060,6 +1134,9 @@ describe('Gameweave parity — §7.2 acceptance gate', { timeout: 60000 }, () =>
   })
   it('E2E stickiness: re-running portweave run produces byte-identical ports map', async () => {
     await testStickiness(await buildFixture())
+  })
+  it('E2E idempotent reuse: re-run and runtime ports() while ports are bound return the same block', async () => {
+    await testReuseWhileBound(await buildFixture())
   })
   it('E2E concurrency: simultaneous allocations from two worktrees produce disjoint blocks', async () => {
     await testConcurrency(await buildFixture())

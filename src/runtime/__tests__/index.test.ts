@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { bindServerOnPort } from '../../allocator/__tests__/_helpers.ts'
 import { PW_ERROR_CODES } from '../../errors.ts'
 import { allocation, env, ports } from '../index.ts'
 import { setupScopedXdg } from './_helpers.ts'
@@ -389,5 +390,104 @@ describe('.env override semantics', () => {
       return
     }
     expect(String(portsResult.value.web)).toBe(envResult.value.WEB_PORT)
+  })
+})
+
+describe('idempotent runtime reads while allocated ports are bound (regression)', () => {
+  // Regression for the downstream "config consumer resolves a different block"
+  // bug: a config file calls ports()/env()/allocation() to discover its own
+  // port AFTER sibling services from the same allocation are already up and
+  // bound. Repeated reads for the same worktree must return the SAME block —
+  // a bound port owned by this allocation is the normal runtime state, not a
+  // conflict that should trigger reallocation. See decision-log #37.
+  it('allocation() is stable across calls while one of its ports is bound', async () => {
+    const projectRoot = await makeFixtureProject('idem-allocation')
+    const first = await allocation({ cwd: projectRoot })
+    expect(first.ok).toBe(true)
+    if (!first.ok) {
+      return
+    }
+
+    const server = await bindServerOnPort(first.value.ports.api)
+    try {
+      const second = await allocation({ cwd: projectRoot })
+      expect(second.ok).toBe(true)
+      if (!second.ok) {
+        return
+      }
+      expect(second.value.ports).toStrictEqual(first.value.ports)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('ports() and env() are stable across repeated calls while a port is bound', async () => {
+    const projectRoot = await makeFixtureProject('idem-ports-env')
+    const firstPorts = await ports({ cwd: projectRoot })
+    expect(firstPorts.ok).toBe(true)
+    if (!firstPorts.ok) {
+      return
+    }
+
+    const server = await bindServerOnPort(firstPorts.value.api)
+    try {
+      const [secondPorts, secondEnv] = await Promise.all([
+        ports({ cwd: projectRoot }),
+        env({ cwd: projectRoot }),
+      ])
+      expect(secondPorts.ok).toBe(true)
+      expect(secondEnv.ok).toBe(true)
+      if (!secondPorts.ok || !secondEnv.ok) {
+        return
+      }
+      expect(secondPorts.value).toStrictEqual(firstPorts.value)
+      expect(Number(secondEnv.value.API_PORT)).toBe(firstPorts.value.api)
+      expect(Number(secondEnv.value.WEB_PORT)).toBe(firstPorts.value.web)
+    } finally {
+      await server.close()
+    }
+  })
+
+  it('mirrors the failing scenario: siblings bound, ports() still resolves the original block', async () => {
+    // app/api/web mirror the orchestrator case: api + web (the "siblings")
+    // bind their injected ports first, then the app's own config file resolves
+    // its port via ports() — which must still see the originally allocated app
+    // port, not a freshly reallocated block.
+    const dir = await makeTmpDir('e2e-sibling-listeners')
+    await writeFile(
+      join(dir, 'portweave.config.json'),
+      JSON.stringify({
+        services: {
+          api: { envVar: 'API_PORT' },
+          app: { envVar: 'APP_PORT' },
+          web: { envVar: 'WEB_PORT' },
+        },
+      }),
+    )
+
+    // The block the orchestrator would inject into the child process.
+    const injected = await ports({ cwd: dir })
+    expect(injected.ok).toBe(true)
+    if (!injected.ok) {
+      return
+    }
+
+    // Sibling services come up and bind their raw ports.
+    const siblings = await Promise.all([
+      bindServerOnPort(injected.value.api),
+      bindServerOnPort(injected.value.web),
+    ])
+    try {
+      // The app's config file now resolves its own port at runtime.
+      const resolved = await ports({ cwd: dir })
+      expect(resolved.ok).toBe(true)
+      if (!resolved.ok) {
+        return
+      }
+      expect(resolved.value.app).toBe(injected.value.app)
+      expect(resolved.value).toStrictEqual(injected.value)
+    } finally {
+      await Promise.all(siblings.map((server) => server.close()))
+    }
   })
 })

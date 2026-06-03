@@ -17,6 +17,9 @@ const CONSTANTS_CHECK = 'constants:check'
 const DOCS_FRESHNESS_CHECK = 'docs:freshness:check'
 const CI_WORKFLOW_CHECK = 'ci-workflow:check'
 const TEST = 'test'
+// The test step runs with coverage so the vitest thresholds (vitest.shared.ts)
+// are enforced in CI, not just when someone runs test:coverage by hand.
+const TEST_COVERAGE = 'test:coverage'
 const UPGRADE_CHECK = 'upgrade:check'
 
 // Order: format → lint → typecheck → static
@@ -34,7 +37,7 @@ const STEPS: Step[] = [
   { name: CONSTANTS_CHECK, script: CONSTANTS_CHECK },
   { name: DOCS_FRESHNESS_CHECK, script: DOCS_FRESHNESS_CHECK },
   { name: CI_WORKFLOW_CHECK, script: CI_WORKFLOW_CHECK },
-  { name: TEST, script: TEST },
+  { name: TEST, script: TEST_COVERAGE },
   { name: UPGRADE_CHECK, script: UPGRADE_CHECK },
 ]
 

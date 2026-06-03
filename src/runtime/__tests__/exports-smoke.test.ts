@@ -10,8 +10,9 @@
  * Gate via RUN_SMOKE_TESTS=1 per the spec's Open Questions §1 recommendation.
  */
 import { execFile } from 'node:child_process'
-import { readdir, rm, writeFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
+import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { makeConsumerProject, makeTmpSmokeDir } from '../exports-smoke.ts'
@@ -23,6 +24,18 @@ const execFileAsync = promisify(execFile)
 
 const SKIP_SMOKE = process.env.RUN_SMOKE_TESTS !== '1'
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..', '..')
+
+// Resolve the repo's real TypeScript compiler. The consumer project does not
+// install `typescript`, so `npx tsc` there would fetch the unrelated `tsc`
+// npm package (an ancient, broken shim) instead of the compiler. `node <tsc>
+// --project <consumer tsconfig>` type-checks the consumer's installed
+// portweave types with the repo's pinned compiler; the binary's location does
+// not affect module resolution (that follows the compiled files' location).
+const TSC_BIN = join(
+  dirname(dirname(createRequire(import.meta.url).resolve('typescript'))),
+  'bin',
+  'tsc',
+)
 
 // Build tsconfig path — uses the emit-capable tsconfig.build.json
 const BUILD_TSCONFIG = join(REPO_ROOT, 'tsconfig.build.json')
@@ -50,9 +63,14 @@ beforeAll(async () => {
   }
   const packFile = join(packDir, packFiles[0])
 
-  // 3. Set up the consumer project
+  // 3. Set up the consumer project, pinning @types/node to the repo's version
+  // so the published-types check uses the Node types the package was built with.
+  const repoPkg = JSON.parse(
+    await readFile(join(REPO_ROOT, 'package.json'), 'utf8'),
+  ) as { devDependencies?: Record<string, string> }
+  const typesNodeSpec = repoPkg.devDependencies?.['@types/node'] ?? 'latest'
   consumerDir = await makeTmpSmokeDir('consumer')
-  await makeConsumerProject(consumerDir, packFile)
+  await makeConsumerProject(consumerDir, packFile, typesNodeSpec)
 }, 120_000)
 
 afterAll(async () => {
@@ -121,14 +139,17 @@ describe.skipIf(SKIP_SMOKE)(
             noEmit: true,
             strict: true,
             target: 'ES2024',
+            types: ['node'],
           },
           include: ['consumer.ts'],
         }),
       )
-      // Should not throw — if tsc fails the test fails
+      // Should not throw — if tsc fails the test fails. Use the repo's real
+      // compiler (see TSC_BIN) rather than `npx tsc`, which would install the
+      // wrong package in the consumer dir.
       await execFileAsync(
-        'npx',
-        ['tsc', '--noEmit', '--project', consumerTsconfig],
+        process.execPath,
+        [TSC_BIN, '--noEmit', '--project', consumerTsconfig],
         { cwd: consumerDir },
       )
     })

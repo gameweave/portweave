@@ -13,8 +13,8 @@ jobs:
   ci-workflow-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -25,12 +25,35 @@ jobs:
     needs: ci-workflow-check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
         with:
           node-version-file: .nvmrc
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
       - run: cargo install similarity-ts --locked
       - run: npm ci
+      # RUN_SMOKE_TESTS=1 opts the test step into the package-export smoke tests
+      # (build + pack + install a real consumer, then import portweave/runtime).
+      # Kept opt-in locally for a fast inner loop; always on in CI so the
+      # published surface is gated before merge.
       - run: npm run dev-workflow
+        env:
+          RUN_SMOKE_TESTS: '1'
+
+  # Cross-platform gate: runs the full test suite (incl. e2e + smoke) on macOS.
+  # The static-analysis checks (lint, dupcheck, similarity, …) are OS-independent
+  # and already run on the ubuntu dev-workflow job, so this leg runs only tests.
+  test-macos:
+    needs: ci-workflow-check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        env:
+          RUN_SMOKE_TESTS: '1'
