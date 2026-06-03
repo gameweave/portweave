@@ -4,11 +4,11 @@ name: Release
 # green commit on main (tag e.g. v0.3.2). The job re-runs the full quality gate
 # before publishing, so a red build can never ship.
 #
-# One-time setup (in the repo / npm account):
-#   - Add an `NPM_TOKEN` repository secret (an npm automation/granular token with
-#     publish rights), OR configure npm Trusted Publishing for this repo and drop
-#     the NODE_AUTH_TOKEN line below.
-#   - Keep npm account 2FA enabled.
+# Auth is npm Trusted Publishing (OIDC) — there is no NPM_TOKEN. The repo is
+# registered as a trusted publisher for this package, and the package's
+# "Publishing access" is set to require 2FA and disallow tokens, so only this
+# OIDC-authenticated workflow can publish. Requires npm >= 11.5.1 (provided by
+# the Node 24 toolchain) and provenance is emitted automatically.
 on:
   release:
     types: [published]
@@ -35,7 +35,7 @@ jobs:
       - run: npm run dev-workflow
         env:
           RUN_SMOKE_TESTS: '1'
-      # prepublishOnly builds dist/; --provenance emits the OIDC attestation.
+      # prepublishOnly builds dist/. With trusted publishing, npm authenticates
+      # via OIDC (no token) and generates provenance automatically; the flag is
+      # explicit for clarity.
       - run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
