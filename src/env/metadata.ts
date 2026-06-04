@@ -10,13 +10,20 @@ export const PORTWEAVE_NAMESPACE_VAR = 'PORTWEAVE_NAMESPACE'
 // name (kebab-case), so `pw:` can never collide with a `${serviceName}` ref.
 export const PW_METADATA_PREFIX = 'pw:'
 
+// Bare reserved discoveryEnv token: `${namespace}` always resolves to the
+// worktree namespace — a convenience alias for `${pw:namespace}`. It is
+// *reserved*, so it shadows any service literally named "namespace" in a
+// template (see decision-log #37). Its value equals the `namespace` metadata
+// field, so the constant doubles as that field's key.
+export const RESERVED_NAMESPACE_TOKEN = 'namespace'
+
 // 1:1 with the identity fields of AllocationKey. Each is a frozen public
 // template placeholder — expose stable identity, not internals or run-state.
 export type PwMetadataField = 'gitCommonDir' | 'namespace' | 'worktreeRoot'
 
 export const PW_METADATA_FIELDS = [
   'gitCommonDir',
-  'namespace',
+  RESERVED_NAMESPACE_TOKEN,
   'worktreeRoot',
 ] as const satisfies readonly PwMetadataField[]
 

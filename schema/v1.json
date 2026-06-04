@@ -45,7 +45,7 @@
         },
         "discoveryEnv": {
           "type": "object",
-          "description": "Additional environment variables mapped to derived values. Templates use ${serviceName} to interpolate that service's allocated port, and ${pw:namespace}/${pw:worktreeRoot}/${pw:gitCommonDir} for worktree metadata. Keys must not start with the reserved PORTWEAVE_ prefix.",
+          "description": "Additional environment variables mapped to derived values. Templates use ${serviceName} to interpolate that service's allocated port, ${pw:namespace}/${pw:worktreeRoot}/${pw:gitCommonDir} for worktree metadata, and the reserved ${namespace} token (shorthand for ${pw:namespace}) for the worktree namespace. Keys must not start with the reserved PORTWEAVE_ prefix.",
           "additionalProperties": { "type": "string" },
           "propertyNames": { "pattern": "^[A-Z][A-Z0-9_]*$" }
         }

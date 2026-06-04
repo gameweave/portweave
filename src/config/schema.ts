@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { PW_METADATA_FIELDS, PW_METADATA_PREFIX } from '../env/metadata.ts'
+import {
+  PW_METADATA_FIELDS,
+  PW_METADATA_PREFIX,
+  RESERVED_NAMESPACE_TOKEN,
+} from '../env/metadata.ts'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { err, ok, type Result } from '../result.ts'
 
@@ -157,6 +161,11 @@ function checkPlaceholder(
   owner: string,
   ctx: CrossFieldContext,
 ): void {
+  // `${namespace}` is reserved (always the worktree namespace), so it validates
+  // regardless of whether a service named "namespace" exists (decision-log #37).
+  if (placeholder === RESERVED_NAMESPACE_TOKEN) {
+    return
+  }
   if (placeholder.startsWith(PW_METADATA_PREFIX)) {
     const field = placeholder.slice(PW_METADATA_PREFIX.length)
     if (!(PW_METADATA_FIELDS as readonly string[]).includes(field)) {

@@ -25,7 +25,8 @@
       "group": "dynamodb",
       "envVar": "DYNAMODB_PORT",
       "discoveryEnv": {
-        "DYNAMODB_ENDPOINT": "http://localhost:${dynamodb}"
+        "DYNAMODB_ENDPOINT": "http://localhost:${dynamodb}",
+        "DDB_TABLE_PREFIX": "local-${namespace}"
       }
     },
     "dynamodb-admin": {
