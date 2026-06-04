@@ -1,4 +1,4 @@
-import { rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PortweaveError, PW_ERROR_CODES } from '../../errors.ts'
@@ -164,5 +164,37 @@ describe('resolveAllocationKey', () => {
     }
     expect(result.error).toBeInstanceOf(PortweaveError)
     expect(result.error.code).toBe(PW_ERROR_CODES.WORKTREE_OFFSET_INVALID)
+  })
+})
+
+describe('resolveAllocationKey cwd-stability', () => {
+  let repo: null | TempGitRepo = null
+
+  afterEach(() => {
+    if (repo) {
+      repo.cleanup()
+      repo = null
+    }
+    vi.unstubAllEnvs()
+  })
+
+  it('resolves an identical key from a workspace subdirectory as from the repo root', () => {
+    repo = createTempGitRepo()
+    vi.stubEnv('PORTWEAVE_NAMESPACE', '')
+    vi.stubEnv('PORTWEAVE_OFFSET', '')
+    const subdir = join(repo.root, 'packages', 'app', 'deep')
+    mkdirSync(subdir, { recursive: true })
+
+    const rootKey = resolveAllocationKey(repo.root)
+    const subKey = resolveAllocationKey(subdir)
+
+    expect(rootKey.ok && subKey.ok).toBe(true)
+    if (!rootKey.ok || !subKey.ok) {
+      return
+    }
+    // Same project ⇒ same key regardless of cwd. A cwd-dependent gitCommonDir
+    // would silently send a subdir caller to a different port block.
+    expect(subKey.value).toStrictEqual(rootKey.value)
+    expect(subKey.value.gitCommonDir).toBe(rootKey.value.gitCommonDir)
   })
 })

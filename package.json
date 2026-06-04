@@ -1,6 +1,6 @@
 {
   "name": "portweave",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Zero-thought, conflict-free local-dev port allocation across projects and git worktrees.",
   "license": "MIT",
   "author": "Gameweave",

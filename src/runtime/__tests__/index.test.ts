@@ -1,7 +1,9 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import { realpathSync } from 'node:fs'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { bindServerOnPort } from '../../allocator/__tests__/_helpers.ts'
 import { PW_ERROR_CODES } from '../../errors.ts'
 import { allocation, env, ports } from '../index.ts'
@@ -27,6 +29,23 @@ async function makeTmpDir(label: string): Promise<string> {
 
 async function makeFixtureProject(label: string): Promise<string> {
   const dir = await makeTmpDir(label)
+  await writeFile(join(dir, 'portweave.config.json'), VALID_CONFIG)
+  return dir
+}
+
+// A real git repo (vs makeFixtureProject's plain dir) so the worktree key is
+// derived from git context — the only setup in which the cwd-stability bug
+// (gitCommonDir resolved against the wrong base) can surface. realpathSync
+// matches git's canonical --show-toplevel output on macOS (/var → /private/var).
+async function makeGitFixtureProject(label: string): Promise<string> {
+  const dir = realpathSync(await makeTmpDir(label))
+  const runGit = (args: string[]): void => {
+    execFileSync('git', args, { cwd: dir, stdio: 'ignore' })
+  }
+  runGit(['init', '--initial-branch=main'])
+  runGit(['config', 'user.email', 'test@portweave.local'])
+  runGit(['config', 'user.name', 'Portweave Test'])
+  runGit(['commit', '--allow-empty', '-m', 'init'])
   await writeFile(join(dir, 'portweave.config.json'), VALID_CONFIG)
   return dir
 }
@@ -489,5 +508,64 @@ describe('idempotent runtime reads while allocated ports are bound (regression)'
     } finally {
       await Promise.all(siblings.map((server) => server.close()))
     }
+  })
+})
+
+describe('cwd-stability within one git project (monorepo subdir)', () => {
+  const createdDirs: string[] = []
+
+  afterEach(async () => {
+    while (createdDirs.length > 0) {
+      const dir = createdDirs.pop()
+      if (dir !== undefined) {
+        await rm(dir, { force: true, recursive: true })
+      }
+    }
+  })
+
+  async function gitProjectWithSubdir(
+    label: string,
+  ): Promise<{ root: string; subdir: string }> {
+    const root = await makeGitFixtureProject(label)
+    createdDirs.push(root)
+    const subdir = join(root, 'packages', 'app', 'deep')
+    await mkdir(subdir, { recursive: true })
+    return { root, subdir }
+  }
+
+  it('ports(): allocate from the repo root, then resolve from a subdir → identical ports', async () => {
+    const { root, subdir } = await gitProjectWithSubdir('cwd-ports')
+    // Sequential: the root call allocates the block; the subdir call must reuse
+    // it. Before the fix the subdir produced a divergent key and a fresh block.
+    const rootResult = await ports({ cwd: root })
+    const subResult = await ports({ cwd: subdir })
+    expect(rootResult.ok && subResult.ok).toBe(true)
+    if (!rootResult.ok || !subResult.ok) {
+      return
+    }
+    expect(subResult.value).toStrictEqual(rootResult.value)
+  })
+
+  it('env(): identical env map from the repo root and a subdir', async () => {
+    const { root, subdir } = await gitProjectWithSubdir('cwd-env')
+    const rootResult = await env({ cwd: root })
+    const subResult = await env({ cwd: subdir })
+    expect(rootResult.ok && subResult.ok).toBe(true)
+    if (!rootResult.ok || !subResult.ok) {
+      return
+    }
+    expect(subResult.value).toStrictEqual(rootResult.value)
+  })
+
+  it('allocation(): identical ports and key from the repo root and a subdir', async () => {
+    const { root, subdir } = await gitProjectWithSubdir('cwd-alloc')
+    const rootResult = await allocation({ cwd: root })
+    const subResult = await allocation({ cwd: subdir })
+    expect(rootResult.ok && subResult.ok).toBe(true)
+    if (!rootResult.ok || !subResult.ok) {
+      return
+    }
+    expect(subResult.value.ports).toStrictEqual(rootResult.value.ports)
+    expect(subResult.value.key).toStrictEqual(rootResult.value.key)
   })
 })
