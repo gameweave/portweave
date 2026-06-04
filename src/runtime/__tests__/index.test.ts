@@ -1,12 +1,16 @@
 import { execFileSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { realpathSync, rmSync } from 'node:fs'
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { bindServerOnPort } from '../../allocator/__tests__/_helpers.ts'
 import { PW_ERROR_CODES } from '../../errors.ts'
-import { allocation, env, ports } from '../index.ts'
+import {
+  addGitWorktree,
+  createTempGitRepo,
+} from '../../worktree/__tests__/_helpers.ts'
+import { allocation, env, namespace, ports } from '../index.ts'
 import { setupScopedXdg } from './_helpers.ts'
 
 setupScopedXdg()
@@ -125,6 +129,36 @@ describe('env()', () => {
       return
     }
     expect(result.value.VITE_API_URL).toMatch(/^http:\/\/localhost:\d+$/)
+  })
+
+  it('resolves a ${namespace}-templated discoveryEnv value (integration)', async () => {
+    const configWithNamespace = JSON.stringify({
+      services: {
+        api: {
+          discoveryEnv: {
+            API_URL: 'http://localhost:${api}/${namespace}',
+            DDB_TABLE_PREFIX: 'local-${namespace}',
+          },
+          envVar: 'API_PORT',
+        },
+      },
+    })
+    const dir = await makeTmpDir('env-namespace-template')
+    await writeFile(join(dir, 'portweave.config.json'), configWithNamespace)
+    const [result, ns] = await Promise.all([
+      env({ cwd: dir }),
+      namespace({ cwd: dir }),
+    ])
+    expect(result.ok).toBe(true)
+    expect(ns.ok).toBe(true)
+    if (!result.ok || !ns.ok) {
+      return
+    }
+    // Non-git tmp dir → namespace is "main".
+    expect(result.value.DDB_TABLE_PREFIX).toBe('local-main')
+    expect(result.value.API_URL).toMatch(/^http:\/\/localhost:\d+\/main$/)
+    // The substituted namespace equals namespace() for the same cwd.
+    expect(result.value.DDB_TABLE_PREFIX).toBe(`local-${ns.value}`)
   })
 })
 
@@ -567,5 +601,139 @@ describe('cwd-stability within one git project (monorepo subdir)', () => {
     }
     expect(subResult.value.ports).toStrictEqual(rootResult.value.ports)
     expect(subResult.value.key).toStrictEqual(rootResult.value.key)
+  })
+})
+
+describe('namespace()', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('equals allocation().namespace and the PORTWEAVE_NAMESPACE env for the same cwd', async () => {
+    const projectRoot = await makeFixtureProject('ns-agree')
+    vi.stubEnv('PORTWEAVE_NAMESPACE', '')
+    const [nsResult, allocResult, envResult] = await Promise.all([
+      namespace({ cwd: projectRoot }),
+      allocation({ cwd: projectRoot }),
+      env({ cwd: projectRoot }),
+    ])
+    expect(nsResult.ok).toBe(true)
+    expect(allocResult.ok).toBe(true)
+    expect(envResult.ok).toBe(true)
+    if (!nsResult.ok || !allocResult.ok || !envResult.ok) {
+      return
+    }
+    expect(nsResult.value).toBe(allocResult.value.namespace)
+    expect(nsResult.value).toBe(envResult.value.PORTWEAVE_NAMESPACE)
+  })
+
+  it('returns "main" for a non-git fixture (primary-worktree equivalent)', async () => {
+    const projectRoot = await makeFixtureProject('ns-main')
+    vi.stubEnv('PORTWEAVE_NAMESPACE', '')
+    const result = await namespace({ cwd: projectRoot })
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value).toBe('main')
+  })
+
+  it('honors a PORTWEAVE_NAMESPACE override (slugified)', async () => {
+    const projectRoot = await makeFixtureProject('ns-override')
+    vi.stubEnv('PORTWEAVE_NAMESPACE', 'My Override!')
+    const result = await namespace({ cwd: projectRoot })
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value).toBe('my-override')
+  })
+
+  it('resolves with no config file and writes no .portweave/current.env (no port side effects)', async () => {
+    // Unlike ports()/env()/allocation(), namespace() needs no config: it resolves
+    // via resolveAllocationKey alone, with no registry lock or port probing.
+    const dir = await makeTmpDir('ns-no-side-effects')
+    vi.stubEnv('PORTWEAVE_NAMESPACE', '')
+    const result = await namespace({ cwd: dir })
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value).toBe('main')
+    await expect(
+      readFile(join(dir, '.portweave', 'current.env'), 'utf-8'),
+    ).rejects.toThrow()
+  })
+
+  it('passes through resolveAllocationKey errors (bad PORTWEAVE_OFFSET)', async () => {
+    const projectRoot = await makeFixtureProject('ns-bad-offset')
+    vi.stubEnv('PORTWEAVE_OFFSET', 'not-a-number')
+    const result = await namespace({ cwd: projectRoot })
+    expect(result.ok).toBe(false)
+    if (result.ok) {
+      return
+    }
+    expect(result.error.code).toBe(PW_ERROR_CODES.WORKTREE_OFFSET_INVALID)
+  })
+})
+
+describe('namespace() — git worktree resolution', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('returns "main" for the primary worktree and a slug-hash for a linked worktree', async () => {
+    vi.stubEnv('PORTWEAVE_NAMESPACE', '')
+    vi.stubEnv('PORTWEAVE_OFFSET', '')
+    const repo = createTempGitRepo()
+    const featureSuffix = `feat-${Date.now().toString(36)}`
+    const featurePath = join(repo.root, '..', featureSuffix)
+    try {
+      addGitWorktree(repo.root, `feature/${featureSuffix}`, featurePath)
+      const [mainNs, featureNs] = await Promise.all([
+        namespace({ cwd: repo.root }),
+        namespace({ cwd: featurePath }),
+      ])
+      expect(mainNs.ok).toBe(true)
+      expect(featureNs.ok).toBe(true)
+      if (!mainNs.ok || !featureNs.ok) {
+        return
+      }
+      expect(mainNs.value).toBe('main')
+      expect(featureNs.value).toMatch(/^[a-z0-9-]+-[0-9a-f]{8}$/)
+      expect(featureNs.value).not.toBe('main')
+    } finally {
+      rmSync(featurePath, { force: true, recursive: true })
+      repo.cleanup()
+    }
+  })
+
+  it('is cwd-stable: identical from the worktree root and a nested subdirectory', async () => {
+    vi.stubEnv('PORTWEAVE_NAMESPACE', '')
+    vi.stubEnv('PORTWEAVE_OFFSET', '')
+    const repo = createTempGitRepo()
+    const featureSuffix = `feat-${Date.now().toString(36)}-sub`
+    const featurePath = join(repo.root, '..', featureSuffix)
+    try {
+      addGitWorktree(repo.root, `feature/${featureSuffix}`, featurePath)
+      const deepSubdir = join(featurePath, 'packages', 'web', 'src')
+      await mkdir(deepSubdir, { recursive: true })
+      const [rootNs, subNs] = await Promise.all([
+        namespace({ cwd: featurePath }),
+        namespace({ cwd: deepSubdir }),
+      ])
+      expect(rootNs.ok).toBe(true)
+      expect(subNs.ok).toBe(true)
+      if (!rootNs.ok || !subNs.ok) {
+        return
+      }
+      // cwd-stability regression guard (rides on the git-common-dir fix): the
+      // namespace must not change with the directory you call it from.
+      expect(subNs.value).toBe(rootNs.value)
+      expect(rootNs.value).not.toBe('main')
+    } finally {
+      rmSync(featurePath, { force: true, recursive: true })
+      repo.cleanup()
+    }
   })
 })

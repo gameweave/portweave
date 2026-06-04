@@ -150,6 +150,27 @@ describe('buildEnvMap', () => {
     expect(result.UPSTREAM).toBe('http://localhost:3104')
   })
 
+  it('resolves the reserved ${namespace} token inside discoveryEnv', () => {
+    const config: Config = {
+      groups: {},
+      services: [
+        {
+          discoveryEnv: {
+            API_URL: 'http://localhost:${api}/${namespace}',
+            DDB_TABLE_PREFIX: 'local-${namespace}',
+          },
+          envVar: 'API_PORT',
+          name: 'api',
+        },
+      ],
+      source: 'file',
+    }
+    const result = buildEnvMap(appendixBAllocation, config)
+    // appendixBAllocation.namespace === 'feature-x-7a2b91', api port 3104
+    expect(result.DDB_TABLE_PREFIX).toBe('local-feature-x-7a2b91')
+    expect(result.API_URL).toBe('http://localhost:3104/feature-x-7a2b91')
+  })
+
   it('throws PW0501 when a service port is missing from the allocation', () => {
     const incompleteAllocation: Allocation = {
       ...appendixBAllocation,

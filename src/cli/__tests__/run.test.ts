@@ -96,6 +96,40 @@ describe('runCommand — orchestration', () => {
     expect(envFile).toContain('PORTWEAVE_NAMESPACE=main')
   })
 
+  it('injects a ${namespace}-templated discoveryEnv value into the child', async () => {
+    const repo = await makeTmpGitRepo({
+      services: {
+        api: {
+          discoveryEnv: { DDB_TABLE_PREFIX: 'local-${namespace}' },
+          envVar: 'API_PORT',
+        },
+      },
+    })
+    const outFile = join(repo, 'prefix-output.txt')
+    try {
+      const io = makeCapturingIo(repo)
+      const code = await runCommand(
+        [
+          'node',
+          '-e',
+          `require('fs').writeFileSync('${outFile}', process.env.DDB_TABLE_PREFIX ?? 'MISSING')`,
+        ],
+        { verbose: false },
+        io,
+      )
+      expect(code).toBe(0)
+      // Fresh repo's primary worktree → namespace 'main'.
+      expect(await readFile(outFile, 'utf8')).toBe('local-main')
+      const envFile = await readFile(
+        join(repo, '.portweave', 'current.env'),
+        'utf8',
+      )
+      expect(envFile).toContain('DDB_TABLE_PREFIX=local-main')
+    } finally {
+      await cleanupDir(repo)
+    }
+  })
+
   it('banner lines go to stderr not stdout', async () => {
     const io = makeCapturingIo(tmpDir)
     await runCommand(['node', '-e', 'process.exit(0)'], { verbose: false }, io)

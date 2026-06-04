@@ -106,3 +106,53 @@ describe('evaluateTemplate — ${pw:*} metadata placeholders', () => {
     )
   })
 })
+
+describe('evaluateTemplate — reserved ${namespace} token', () => {
+  it('resolves ${namespace} to the worktree namespace', () => {
+    expect(evaluateTemplate('${namespace}', {}, META)).toBe('feature-x-7a2b91')
+  })
+
+  it('resolves "local-${namespace}" (DB-prefix style)', () => {
+    expect(evaluateTemplate('local-${namespace}', {}, META)).toBe(
+      'local-feature-x-7a2b91',
+    )
+  })
+
+  it('mixes ${namespace} with a ${service} port ref in one template', () => {
+    const result = evaluateTemplate(
+      'http://localhost:${api}/${namespace}',
+      { api: 30100 },
+      META,
+    )
+    expect(result).toBe('http://localhost:30100/feature-x-7a2b91')
+  })
+
+  it('is reserved: ${namespace} wins over a service literally named "namespace"', () => {
+    // A service named "namespace" would put a port under ports.namespace, but the
+    // reserved token must still resolve to the worktree namespace string, not 30100.
+    const result = evaluateTemplate('${namespace}', { namespace: 30100 }, META)
+    expect(result).toBe('feature-x-7a2b91')
+    expect(result).not.toBe('30100')
+  })
+
+  it('equals ${pw:namespace} for the same metadata (it is an alias)', () => {
+    expect(evaluateTemplate('${namespace}', {}, META)).toBe(
+      evaluateTemplate('${pw:namespace}', {}, META),
+    )
+  })
+
+  it('reserves only "namespace": a bare ${worktreeRoot} is still an unknown service', () => {
+    // Other metadata fields keep requiring the ${pw:*} prefix — the bare form is
+    // a service-port ref, so ${worktreeRoot} with no such service throws PW0501.
+    let thrownError: unknown
+    try {
+      evaluateTemplate('${worktreeRoot}', {}, META)
+    } catch (e) {
+      thrownError = e
+    }
+    expect(thrownError).toBeInstanceOf(PortweaveError)
+    expect((thrownError as PortweaveError).code).toBe(
+      PW_ERROR_CODES.ENV_BUILD_INVALID,
+    )
+  })
+})

@@ -121,12 +121,13 @@ describe.skipIf(SKIP_SMOKE)(
       await writeFile(
         consumerTs,
         [
-          `import { ports, env, allocation, type PortsOptions } from 'portweave/runtime'`,
+          `import { ports, env, allocation, namespace, type PortsOptions } from 'portweave/runtime'`,
           `const opts: PortsOptions = {}`,
           `const r1 = await ports(opts)`,
           `const r2 = await env(opts)`,
           `const r3 = await allocation(opts)`,
-          `console.log(r1, r2, r3)`,
+          `const r4 = await namespace(opts)`,
+          `console.log(r1, r2, r3, r4)`,
         ].join('\n'),
       )
       const consumerTsconfig = join(consumerDir, 'tsconfig.json')

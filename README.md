@@ -169,13 +169,13 @@ Portweave looks for `portweave.config.json`, starting in the working directory a
 
 Field reference:
 
-| Field                          | Required     | Rules                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `$schema`                      | optional     | A schema URL string. Ignored at runtime; useful for editor autocompletion.                                                                                                                                                                                                                                                                                                                                                                           |
-| `services`                     | **required** | An object with at least one entry. Each key is a service name in kebab-case (`^[a-z][a-z0-9-]*$`).                                                                                                                                                                                                                                                                                                                                                   |
-| `services.<name>.envVar`       | **required** | The environment-variable name the allocated port is exposed as. Must match `^[A-Z][A-Z0-9_]*$`. Must be unique across all services.                                                                                                                                                                                                                                                                                                                  |
-| `services.<name>.group`        | optional     | A group label. Services sharing a group are allocated as a contiguous block, so they move together (handy when a tool expects two adjacent ports).                                                                                                                                                                                                                                                                                                   |
-| `services.<name>.discoveryEnv` | optional     | A map of additional environment variables to derived values. Each value is a template; `${serviceName}` is replaced with that service's allocated port, and `${pw:<field>}` with worktree metadata (see below). Keys must be valid env-var names, unique across the whole config, and must not start with the reserved `PORTWEAVE_` prefix. A `${name}` that matches neither a declared service nor a known metadata field is a configuration error. |
+| Field                          | Required     | Rules                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------ | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `$schema`                      | optional     | A schema URL string. Ignored at runtime; useful for editor autocompletion.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `services`                     | **required** | An object with at least one entry. Each key is a service name in kebab-case (`^[a-z][a-z0-9-]*$`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `services.<name>.envVar`       | **required** | The environment-variable name the allocated port is exposed as. Must match `^[A-Z][A-Z0-9_]*$`. Must be unique across all services.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `services.<name>.group`        | optional     | A group label. Services sharing a group are allocated as a contiguous block, so they move together (handy when a tool expects two adjacent ports).                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `services.<name>.discoveryEnv` | optional     | A map of additional environment variables to derived values. Each value is a template; `${serviceName}` is replaced with that service's allocated port, `${pw:<field>}` with worktree metadata, and the reserved `${namespace}` token with the worktree namespace (all three covered below). Keys must be valid env-var names, unique across the whole config, and must not start with the reserved `PORTWEAVE_` prefix. A `${name}` that matches neither a declared service, a known metadata field, nor the reserved `${namespace}` token is a configuration error. |
 
 A copyable starting point lives at [`examples/web-app.config.json`](examples/web-app.config.json).
 
@@ -183,6 +183,7 @@ Notes that affect how you write templates:
 
 - `${serviceName}` always resolves to the **allocated** port for that service, even if you override the service's own `envVar` through a project `.env` file. Derived URLs stay internally consistent.
 - `${pw:<field>}` resolves Portweave metadata for the current worktree. Available fields: `namespace` (`main` or `<slug>-<hash>`), `worktreeRoot` (absolute path), and `gitCommonDir` (the shared `.git` directory, or empty string outside a git repo). Compose them freely, e.g. `"OTEL_SERVICE_NAME": "gw-${pw:namespace}"`.
+- `${namespace}` is a **reserved** shorthand for `${pw:namespace}` — the worktree namespace. It always resolves to the namespace, even if a service is literally named `namespace` (that service's port is still reachable through its own `envVar`, just not through `${namespace}`). It is the ergonomic primitive for isolating **non-port** resources per worktree — e.g. `"DDB_TABLE_PREFIX": "local-${namespace}"`, `"REGISTRY_BUCKET_PREFIX": "gw-${namespace}"`, or a PM2 process name. See [Isolating non-port resources per worktree](#isolating-non-port-resources-per-worktree).
 - The configuration file is strict: unknown top-level keys and unknown service fields are rejected with a `PW0102` error that names the offending path.
 
 ### Injected metadata: `PORTWEAVE_NAMESPACE`
@@ -192,6 +193,37 @@ Every `portweave run` injects `PORTWEAVE_NAMESPACE` into the child process (and 
 This is the primitive for keeping worktrees from colliding in shared, single-instance daemons. The canonical case is PM2: name each app `<service>-${process.env.PORTWEAVE_NAMESPACE}` (e.g. in `ecosystem.config.cjs`) so two worktrees running the same stack register distinct process names in the one PM2 daemon. Portweave allocates the ports and hands you the namespace; it never manages processes itself.
 
 `PORTWEAVE_NAMESPACE` is authoritative: it always reports the namespace Portweave used, so a value set in your project `.env` or parent environment does not change what the child observes (an explicit value is still honored as an _override of which namespace gets derived_ — set it before invoking `portweave run`).
+
+### Isolating non-port resources per worktree
+
+Ports are not the only thing that collides when you run the same stack in two worktrees at once. PM2 process names, database table prefixes, S3/registry key prefixes, and cache directories all need to be worktree-unique too — and the namespace is exactly that primitive. Portweave isolates ports automatically; the namespace lets you isolate everything else with the same key, so two worktrees never clobber each other's processes, tables, or buckets.
+
+There are three ways to reach the namespace, matched to where you need it:
+
+| You're in…                                   | Use                                        | Example                                         |
+| -------------------------------------------- | ------------------------------------------ | ----------------------------------------------- |
+| a `portweave run` child (any language)       | the injected `PORTWEAVE_NAMESPACE` env var | `pm2 start api --name api-$PORTWEAVE_NAMESPACE` |
+| `portweave.config.json` (declarative)        | the reserved `${namespace}` template token | `"DDB_TABLE_PREFIX": "local-${namespace}"`      |
+| a JS/TS config or script (before allocation) | `namespace()` from `portweave/runtime`     | `` `gw-${(await namespace()).value}` ``         |
+
+All three return the same value for a given worktree (`main`, or `<slug>-<hash>`), so you can mix them freely across a stack. A declarative `discoveryEnv` example:
+
+```json
+{
+  "services": {
+    "api": {
+      "envVar": "API_PORT",
+      "discoveryEnv": {
+        "DDB_TABLE_PREFIX": "local-${namespace}",
+        "REGISTRY_BUCKET_PREFIX": "gw-${namespace}",
+        "CACHE_DIR": ".cache/${namespace}"
+      }
+    }
+  }
+}
+```
+
+In the main worktree these resolve to `local-main` / `gw-main` / `.cache/main`; in a feature worktree to `local-feature-auth-7a2b91c3` and so on. This is what lets Portweave stand in for a homegrown per-worktree allocator that exposed a `{ namespace }` of its own: the port side is automatic, and the namespace covers the rest.
 
 ## CLI reference
 
@@ -457,10 +489,10 @@ Malformed values for `PORTWEAVE_POOL_RANGE` and `PORTWEAVE_LOCK_TIMEOUT_MS` fall
 
 ## Runtime library API
 
-For config files and scripts that need the allocation before a child process exists, import from `portweave/runtime`. All three exports are async functions that run the same allocate-and-resolve pipeline as the CLI and return a `Result` you must narrow:
+For config files and scripts that need the allocation before a child process exists, import from `portweave/runtime`. Every export is async and returns a `Result` you must narrow. `ports()`, `env()`, and `allocation()` run the same allocate-and-resolve pipeline as the CLI; `namespace()` is a lightweight shortcut that resolves only the worktree namespace, without allocating ports:
 
 ```ts
-import { ports, env, allocation } from 'portweave/runtime'
+import { ports, env, allocation, namespace } from 'portweave/runtime'
 
 // ports() → Result<Record<string, number>, PortweaveError>
 // Per-service numeric ports, with `.env` overrides applied. Use this when you
@@ -480,6 +512,15 @@ if (e.ok) console.log(e.value.DATABASE_URL)
 // `.env` overrides — use for introspection / debugging, not for binding.
 const a = await allocation()
 if (a.ok) console.log(a.value.namespace)
+
+// namespace() → Result<string, PortweaveError>
+// The per-worktree namespace string ("main" or "<slug>-<hash>"), identical to
+// allocation().value.namespace and the injected PORTWEAVE_NAMESPACE — but
+// resolved WITHOUT allocating or probing ports, and without needing a config
+// file. Use it to name non-port resources per worktree (PM2 process names, DB
+// table prefixes, cache dirs). cwd-stable: same value from any subdirectory.
+const n = await namespace()
+if (n.ok) console.log(`gw-${n.value}`) // e.g. "gw-feature-auth-7a2b91c3"
 ```
 
 A `Result` is `{ ok: true, value } | { ok: false, error }`; on the error arm, `error` is a `PortweaveError` with a `.code` (one of the `PW####` codes) and a `.message`. Each function accepts an optional options object:
@@ -490,7 +531,9 @@ A `Result` is `{ ok: true, value } | { ok: false, error }`; on the error arm, `e
 | `configPath` | `string` | Use a specific config file; skips upward-directory discovery.                                         |
 | `count`      | `number` | Anonymous-mode fallback: if no config file is found, synthesize `count` services (`port-1`…`port-N`). |
 
-Calling the runtime API allocates exactly as the CLI does — it acquires the registry lock, reuses the sticky block for the worktree, and writes `.portweave/current.env` as a side effect.
+`namespace()` only reads `cwd` — it does not load a config, so `configPath` and `count` have no effect on it (and it succeeds even when no `portweave.config.json` exists).
+
+Calling `ports()`, `env()`, or `allocation()` allocates exactly as the CLI does — it acquires the registry lock, reuses the sticky block for the worktree, and writes `.portweave/current.env` as a side effect. `namespace()` does none of that: it resolves the worktree key only, so it acquires no lock, probes no ports, and writes no file.
 
 ## Errors and recovery
 

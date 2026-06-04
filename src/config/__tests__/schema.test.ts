@@ -382,3 +382,41 @@ describe('validateAndNormalizeConfig — cross-field refinements', () => {
     expect(result.error.message).toContain('B_PORT')
   })
 })
+
+describe('validateAndNormalizeConfig — reserved ${namespace} token', () => {
+  it('accepts the reserved ${namespace} token in discoveryEnv', () => {
+    const result = validateAndNormalizeConfig(
+      {
+        services: {
+          api: {
+            discoveryEnv: {
+              API_URL: 'http://localhost:${api}/${namespace}',
+              DDB_TABLE_PREFIX: 'local-${namespace}',
+            },
+            envVar: 'API_PORT',
+          },
+        },
+      },
+      { source: 'file' },
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it('accepts ${namespace} alongside a service literally named "namespace"', () => {
+    // A service named "namespace" is legal; ${namespace} is reserved and refers
+    // to the worktree namespace, not that service's port — so validation passes.
+    const result = validateAndNormalizeConfig(
+      {
+        services: {
+          api: {
+            discoveryEnv: { LABEL: 'svc-${namespace}' },
+            envVar: 'API_PORT',
+          },
+          namespace: { envVar: 'NAMESPACE_PORT' },
+        },
+      },
+      { source: 'file' },
+    )
+    expect(result.ok).toBe(true)
+  })
+})

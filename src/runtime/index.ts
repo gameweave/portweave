@@ -165,6 +165,30 @@ export async function env(
 }
 
 /**
+ * Resolve the per-worktree namespace string WITHOUT allocating or probing ports.
+ *
+ * Returns the same value as `allocation().value.namespace` and the injected
+ * `PORTWEAVE_NAMESPACE` for the same `cwd` — `main` for the primary worktree,
+ * `<slug>-<hash>` for a linked one — but resolves through `resolveAllocationKey`
+ * alone, touching neither the registry lock nor the port-probe path. Honors the
+ * `PORTWEAVE_NAMESPACE` override and the `cwd` option with the same precedence
+ * as the rest of the runtime, and is cwd-stable (identical from the worktree
+ * root and any subdirectory). `configPath` / `count` do not affect the result.
+ *
+ * Use this to name non-port resources per worktree (pm2 process names, DB table
+ * prefixes, cache dirs) without paying for a port allocation.
+ */
+export function namespace(
+  opts?: PortsOptions,
+): Promise<Result<string, PortweaveError>> {
+  const cwd = resolvePath(opts?.cwd ?? process.cwd())
+  const keyResult = resolveAllocationKey(cwd)
+  return Promise.resolve(
+    keyResult.ok ? ok(keyResult.value.namespace) : keyResult,
+  )
+}
+
+/**
  * Return the per-service numeric port map, with `.env` overrides applied.
  *
  * Each key is a service name from `portweave.config.json` (or `port-1`..`port-N`
