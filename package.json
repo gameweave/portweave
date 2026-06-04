@@ -43,7 +43,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc --project tsconfig.build.json && chmod +x dist/cli.js",
+    "build": "tsc --project tsconfig.build.json && chmod +x dist/cli.js && npm --prefix panel install && npm --prefix panel run build",
     "typecheck": "tsx scripts/bin/typecheck.ts",
     "lint": "tsx scripts/bin/lint.ts",
     "lint:fix": "tsx scripts/bin/lint.ts --fix",

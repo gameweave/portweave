@@ -1,6 +1,6 @@
 import { mkdir } from 'node:fs/promises'
 import { PortweaveError } from '../errors.ts'
-import { err, type Result } from '../result.ts'
+import { err, ok, type Result } from '../result.ts'
 import { atomicWriteRegistry, pruneStaleTempFiles } from './atomic-write.ts'
 import { withLock } from './lock.ts'
 import { resolveRegistryPath } from './paths.ts'
@@ -87,6 +87,24 @@ type InnerOutcome<T> =
 
 const LOAD_ERROR_KIND = 'load-error' as const
 const OK_KIND = 'ok' as const
+
+/**
+ * Side-effect-free read of the registry entries. Unlike {@link withRegistry},
+ * it does not prune stale entries, take the lock, create the registry dir, or
+ * write anything — a truly read-only snapshot. A missing registry file yields
+ * an empty list (see {@link loadRegistryFile}). Used by the read-only panel,
+ * which must surface deleted-dir worktrees and never mutate state on a read.
+ */
+export async function readRegistryEntries(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<Result<readonly RegistryEntry[], PortweaveError>> {
+  const paths = resolveRegistryPath(env)
+  const loaded = await loadRegistryFile(paths.registryFile)
+  if (!loaded.ok) {
+    return err(loaded.error)
+  }
+  return ok(loaded.value.entries)
+}
 
 export async function withRegistry<T>(
   fn: (handle: WithRegistryHandle) => Promise<T> | T,

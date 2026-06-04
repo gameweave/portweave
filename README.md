@@ -14,6 +14,7 @@ It is built for developers who run several projects on one machine, who use git 
 - [How Portweave works](#how-portweave-works)
 - [Configuration](#configuration)
 - [CLI reference](#cli-reference)
+- [Preview dashboard (`portweave panel`)](#preview-dashboard-portweave-panel)
 - [Recipes](#recipes)
 - [Migrating from an existing port setup](#migrating-from-an-existing-port-setup)
 - [Environment variable overrides](#environment-variable-overrides)
@@ -305,6 +306,21 @@ $ portweave show --json
 ```
 
 If the worktree has no allocation yet, `show` exits `1` and tells you to run `portweave run` first.
+
+## Preview dashboard (`portweave panel`)
+
+`portweave show` answers "what ports does _this_ worktree have?" The panel answers the cross-cutting version: stand back and see _everything_ allocated on the machine at once. Because ports are dynamic, a feature worktree's web app might be on `30002` today and `30107` tomorrow — the panel gives you a stable home page of clickable preview links instead of a port hunt.
+
+```bash
+portweave panel
+portweave panel --port 8080   # use a different port
+```
+
+It starts a local, **read-only** web dashboard of every machine-wide allocation, grouped project → worktree → service. Each service with a discovery URL renders as a clickable link that opens the running service; services without a URL template show their port. A per-port live / not-running indicator distinguishes an active preview from a stale allocation at a glance, and a worktree whose config or directory is gone still appears, marked degraded.
+
+- Default port **`7733`**; override with `--port <n>`.
+- Binds **loopback only** (`127.0.0.1`) — no auth, no remote access.
+- Runs in the **foreground** on demand; press **Ctrl-C** to stop. There is no daemon, and the panel never writes the registry — it is a pure viewer.
 
 ## Recipes
 

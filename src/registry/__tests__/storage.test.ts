@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PW_ERROR_CODES } from '../../errors.ts'
-import { withRegistry } from '../storage.ts'
+import { readRegistryEntries, withRegistry } from '../storage.ts'
 import type { AllocationKey, RegistryEntry } from '../types.ts'
 
 let configDir: string
@@ -261,5 +261,92 @@ describe('withRegistry edge cases', () => {
         recursive: true,
       })
     }
+  })
+})
+
+describe('readRegistryEntries', () => {
+  const registryFileOf = (): string =>
+    join(configDir, 'portweave', 'registry.json')
+
+  it('returns all entries from a seeded registry', async () => {
+    const root1 = await mkdtemp(join(tmpdir(), 'pw-storage-wt-'))
+    const root2 = await mkdtemp(join(tmpdir(), 'pw-storage-wt-'))
+    try {
+      await withRegistry((h) => {
+        h.upsert(makeEntry(root1))
+        h.upsert(makeEntry(root2))
+      }, env)
+
+      const result = await readRegistryEntries(env)
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.value.map((e) => e.key.worktreeRoot).sort()).toEqual(
+          [root1, root2].sort(),
+        )
+      }
+    } finally {
+      await rm(root1, { force: true, recursive: true })
+      await rm(root2, { force: true, recursive: true })
+    }
+  })
+
+  it('returns an entry whose worktreeRoot directory no longer exists (no pruning)', async () => {
+    // Seed while the dir exists (so withRegistry's prune-on-write keeps it),
+    // then delete the dir. withRegistry would drop this on its next read;
+    // readRegistryEntries must keep it.
+    const root = await mkdtemp(join(tmpdir(), 'pw-storage-wt-'))
+    await withRegistry((h) => {
+      h.upsert(makeEntry(root))
+    }, env)
+    await rm(root, { force: true, recursive: true })
+    expect(existsSync(root)).toBe(false)
+
+    const result = await readRegistryEntries(env)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value.map((e) => e.key.worktreeRoot)).toEqual([root])
+    }
+  })
+
+  it('does not modify the registry file, even with a deleted-dir entry present', async () => {
+    // Seed a healthy entry and a deleted-dir entry, then assert the on-disk
+    // bytes are identical before and after the read — proving no prune-rewrite.
+    const healthyRoot = await mkdtemp(join(tmpdir(), 'pw-storage-wt-'))
+    const goneRoot = await mkdtemp(join(tmpdir(), 'pw-storage-wt-'))
+    try {
+      await withRegistry((h) => {
+        h.upsert(makeEntry(healthyRoot))
+        h.upsert(makeEntry(goneRoot))
+      }, env)
+      await rm(goneRoot, { force: true, recursive: true })
+
+      const before = await readFile(registryFileOf(), 'utf-8')
+      const beforeMtime = (await stat(registryFileOf())).mtimeMs
+      await new Promise((r) => setTimeout(r, 20))
+
+      const result = await readRegistryEntries(env)
+      expect(result.ok).toBe(true)
+
+      const after = await readFile(registryFileOf(), 'utf-8')
+      const afterMtime = (await stat(registryFileOf())).mtimeMs
+      expect(after).toBe(before)
+      expect(afterMtime).toBe(beforeMtime)
+    } finally {
+      await rm(healthyRoot, { force: true, recursive: true })
+    }
+  })
+
+  it('returns ok with an empty list when the registry file is missing', async () => {
+    // Fresh configDir → no registry file written yet.
+    expect(existsSync(registryFileOf())).toBe(false)
+
+    const result = await readRegistryEntries(env)
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect(result.value).toEqual([])
+    }
+    // And it must not have created the registry dir or file on a read.
+    expect(existsSync(registryFileOf())).toBe(false)
+    expect(existsSync(join(configDir, 'portweave'))).toBe(false)
   })
 })

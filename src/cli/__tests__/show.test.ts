@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { Writable } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Command } from 'commander'
 import { withRegistry } from '../../registry/storage.ts'
@@ -10,24 +9,11 @@ import type { RegistryEntry } from '../../registry/types.ts'
 import { resolveAllocationKey } from '../../worktree/key.ts'
 import type { AllocationKey } from '../../worktree/key.ts'
 import { registerShowCommand, runShow, type ShowOptions } from '../show.ts'
+import { makeWritable } from './_helpers.ts'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function makeWritable(): { stream: Writable; value: () => string } {
-  const chunks: Buffer[] = []
-  const stream = new Writable({
-    write(chunk, _enc, cb) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))
-      cb()
-    },
-  })
-  return {
-    stream,
-    value: () => Buffer.concat(chunks).toString('utf8'),
-  }
-}
 
 const CONFIG_CONTENT = JSON.stringify({
   services: {

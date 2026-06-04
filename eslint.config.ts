@@ -27,6 +27,7 @@ export default defineConfig(
       '**/coverage/**',
       '**/*.js.map',
       '.claude/**',
+      'panel/**',
     ],
   },
   eslint.configs.recommended,

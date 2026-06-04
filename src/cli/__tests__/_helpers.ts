@@ -53,3 +53,19 @@ export async function makeTmpGitRepo(config?: object): Promise<string> {
 export async function cleanupDir(dir: string): Promise<void> {
   await rm(dir, { force: true, recursive: true })
 }
+
+// A capturing Writable plus an accessor for everything written to it. Shared by
+// the show and panel command tests, which both assert on stderr/stdout content.
+export function makeWritable(): { stream: Writable; value: () => string } {
+  const chunks: Buffer[] = []
+  const stream = new Writable({
+    write(chunk, _enc, cb) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)))
+      cb()
+    },
+  })
+  return {
+    stream,
+    value: () => Buffer.concat(chunks).toString('utf8'),
+  }
+}

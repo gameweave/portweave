@@ -11,6 +11,12 @@
       "type": "string",
       "description": "URL of this schema, for editor autocompletion. Ignored by Portweave at runtime."
     },
+    "projectName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Optional human-friendly project label shown in the portweave panel dashboard. Falls back to a name derived from the git repository when unset."
+    },
     "services": {
       "type": "object",
       "description": "Map of kebab-case service name to its port/env configuration. At least one entry is required.",

@@ -420,3 +420,88 @@ describe('validateAndNormalizeConfig — reserved ${namespace} token', () => {
     expect(result.ok).toBe(true)
   })
 })
+
+describe('validateAndNormalizeConfig — projectName', () => {
+  it('accepts and trims a non-empty projectName', () => {
+    const result = validateAndNormalizeConfig(
+      {
+        projectName: 'My App',
+        services: { api: { envVar: 'API_PORT' } },
+      },
+      { source: 'file' },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value.projectName).toBe('My App')
+  })
+
+  it('trims surrounding whitespace from projectName', () => {
+    const result = validateAndNormalizeConfig(
+      {
+        projectName: '  My App  ',
+        services: { api: { envVar: 'API_PORT' } },
+      },
+      { source: 'file' },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value.projectName).toBe('My App')
+  })
+
+  it('leaves projectName undefined when absent (backward-compat / parity)', () => {
+    const result = validateAndNormalizeConfig(
+      { services: { api: { envVar: 'API_PORT' } } },
+      { source: 'file' },
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value.projectName).toBeUndefined()
+  })
+
+  it('rejects an empty-string projectName', () => {
+    expectInvalid(
+      {
+        projectName: '',
+        services: { api: { envVar: 'API_PORT' } },
+      },
+      'projectName',
+    )
+  })
+
+  it('rejects a whitespace-only projectName', () => {
+    expectInvalid(
+      {
+        projectName: '   ',
+        services: { api: { envVar: 'API_PORT' } },
+      },
+      'projectName',
+    )
+  })
+
+  it('rejects a non-string projectName', () => {
+    expectInvalid(
+      {
+        projectName: 123,
+        services: { api: { envVar: 'API_PORT' } },
+      },
+      'projectName',
+    )
+  })
+
+  it('still rejects an unknown sibling key alongside projectName', () => {
+    expectInvalid(
+      {
+        bogus: true,
+        projectName: 'My App',
+        services: { api: { envVar: 'API_PORT' } },
+      },
+      'bogus',
+    )
+  })
+})

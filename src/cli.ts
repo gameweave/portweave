@@ -2,6 +2,7 @@
 import { createRequire } from 'node:module'
 import { Command } from 'commander'
 import { PortweaveError } from './errors.ts'
+import { registerPanelCommand } from './cli/panel.ts'
 import { registerRunCommand } from './cli/run.ts'
 import { registerShowCommand } from './cli/show.ts'
 
@@ -23,6 +24,7 @@ export function buildCli(): Command {
 
   registerRunCommand(program)
   registerShowCommand(program)
+  registerPanelCommand(program)
 
   return program
 }
