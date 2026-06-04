@@ -1064,6 +1064,55 @@ async function testConfigLoaderValidation(): Promise<void> {
   assertDiscoveryEnvShapes(cfg)
 }
 
+async function testCwdStabilitySubdir(fx: TestFixture): Promise<void> {
+  // Downstream monorepo symptom: an orchestrator allocates from the repo root
+  // via `portweave run`, then a build-tool config in a workspace subdir calls
+  // the runtime to discover its port. Both must observe the same block — the
+  // git-common-dir key component must be cwd-independent within one project.
+  const env = makeEnv(fx.xdgConfigHome)
+  await runNoop(fx.mainDir, env) // allocate from the repo root
+
+  const subdir = path.join(fx.mainDir, 'packages', 'app')
+  fs.mkdirSync(subdir, { recursive: true })
+
+  const runtimeIndexPath = resolveRuntimeIndexPath()
+  const consumerPath = path.join(subdir, 'use-runtime.mjs')
+  fs.writeFileSync(
+    consumerPath,
+    [
+      `import { ports } from '${runtimeIndexPath}'`,
+      `const result = await ports()`,
+      `if (!result.ok) { process.stderr.write(result.error.message + '\\n'); process.exit(1); }`,
+      `console.log(JSON.stringify(result.value))`,
+    ].join('\n'),
+    'utf8',
+  )
+
+  const { stdout } = await execFileAsync(process.execPath, [consumerPath], {
+    cwd: subdir,
+    env: { ...process.env, ...env },
+  })
+  const subdirPorts = JSON.parse(stdout.trim()) as Record<string, number>
+
+  const rootShow = await showJson(fx.mainDir, fx.xdgConfigHome)
+
+  expect(Object.keys(subdirPorts).sort()).toEqual(
+    Object.keys(rootShow.ports).sort(),
+  )
+  for (const key of Object.keys(rootShow.ports)) {
+    expect(
+      subdirPorts[key],
+      `port ${key} differs between root allocation and subdir runtime`,
+    ).toBe(rootShow.ports[key])
+  }
+
+  try {
+    fs.rmSync(consumerPath)
+  } catch {
+    // pw-allow-swallow: best-effort cleanup of temp test file — not load-bearing
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Guard: dist/cli.js must exist
 // ---------------------------------------------------------------------------
@@ -1140,6 +1189,9 @@ describe('Gameweave parity — §7.2 acceptance gate', { timeout: 60000 }, () =>
   })
   it('E2E concurrency: simultaneous allocations from two worktrees produce disjoint blocks', async () => {
     await testConcurrency(await buildFixture())
+  })
+  it('Cwd-stability: runtime ports() from a workspace subdir matches the root allocation', async () => {
+    await testCwdStabilitySubdir(await buildFixture())
   })
   it('Anonymous mode: --count 8 produces a valid 8-port allocation', async () => {
     await testAnonymousMode(await buildFixture())

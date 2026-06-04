@@ -1,4 +1,4 @@
-import { rmSync } from 'node:fs'
+import { mkdirSync, rmSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PW_ERROR_CODES } from '../../errors.ts'
@@ -154,5 +154,49 @@ describe('detectGitWorktreeContext', () => {
     expect(ctx.currentRoot).toBe(normalizePath(featurePath))
     expect(ctx.mainRoot).toBe(normalizePath(repo.root))
     expect(ctx.worktreeRoots).toHaveLength(2)
+  })
+
+  it('resolves an identical gitCommonDir from the repo root and a nested subdirectory', () => {
+    repo = createTempGitRepo()
+    const subdir = join(repo.root, 'packages', 'app', 'deep')
+    mkdirSync(subdir, { recursive: true })
+
+    const rootResult = detectGitWorktreeContext(repo.root)
+    const subResult = detectGitWorktreeContext(subdir)
+
+    expect(rootResult.ok && subResult.ok).toBe(true)
+    if (!rootResult.ok || !subResult.ok) {
+      return
+    }
+    // git rev-parse --git-common-dir is relative to git's cwd; the resolved
+    // value must not depend on cwd, or the allocation key (which includes
+    // gitCommonDir) would diverge between the repo root and a workspace subdir.
+    expect(subResult.value.gitCommonDir).toBe(rootResult.value.gitCommonDir)
+    expect(rootResult.value.gitCommonDir).toBe(
+      normalizePath(join(repo.root, '.git')),
+    )
+  })
+
+  it('resolves an identical gitCommonDir from a linked worktree root and its subdirectory', () => {
+    repo = createTempGitRepo()
+    const featureSuffix = `feat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+    const featurePath = join(repo.root, '..', featureSuffix)
+    cleanupPaths.push(featurePath)
+    addGitWorktree(repo.root, `feature/${featureSuffix}`, featurePath)
+    const featureSubdir = join(featurePath, 'packages', 'app')
+    mkdirSync(featureSubdir, { recursive: true })
+
+    const wtRootResult = detectGitWorktreeContext(featurePath)
+    const wtSubResult = detectGitWorktreeContext(featureSubdir)
+
+    expect(wtRootResult.ok && wtSubResult.ok).toBe(true)
+    if (!wtRootResult.ok || !wtSubResult.ok) {
+      return
+    }
+    expect(wtSubResult.value.gitCommonDir).toBe(wtRootResult.value.gitCommonDir)
+    // A linked worktree shares the main repo's .git common dir.
+    expect(wtRootResult.value.gitCommonDir).toBe(
+      normalizePath(join(repo.root, '.git')),
+    )
   })
 })

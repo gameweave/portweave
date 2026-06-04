@@ -47,7 +47,14 @@ export function detectGitWorktreeContext(
   cwd: string,
 ): Result<GitWorktreeContext, PortweaveError> {
   const currentRoot = runGit(['rev-parse', '--show-toplevel'], cwd)
-  const gitCommonDir = runGit(['rev-parse', '--git-common-dir'], cwd)
+  // --path-format=absolute makes git emit a canonical absolute common-dir path
+  // that is identical for any cwd in the repo. (Bare --git-common-dir is relative
+  // to git's cwd, e.g. ".git" at the root vs "../../.git" in a subdir — see
+  // resolveGitPath for how an older git's relative output is recovered.)
+  const gitCommonDir = runGit(
+    ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+    cwd,
+  )
   const worktreeOutput = runGit(['worktree', 'list', '--porcelain'], cwd)
 
   if (
@@ -68,14 +75,18 @@ export function detectGitWorktreeContext(
 
   return ok({
     currentRoot: normalizePath(currentRoot),
-    gitCommonDir: resolveGitPath(currentRoot, gitCommonDir),
+    gitCommonDir: resolveGitPath(cwd, gitCommonDir),
     mainRoot: normalizePath(mainRoot),
     worktreeRoots,
   })
 }
 
-function resolveGitPath(currentRoot: string, path: string): string {
-  return isAbsolute(path) ? path : resolve(currentRoot, path)
+// A relative --git-common-dir is relative to the cwd git ran in, so it must
+// resolve against that cwd — not the worktree root, or the path (and the
+// allocation key built from it) would differ by cwd within one repo. With
+// --path-format=absolute the path is already absolute and returned as-is.
+function resolveGitPath(cwd: string, path: string): string {
+  return isAbsolute(path) ? path : resolve(cwd, path)
 }
 
 function runGit(args: string[], cwd: string): null | string {
