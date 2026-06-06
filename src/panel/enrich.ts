@@ -1,11 +1,11 @@
 import { existsSync } from 'node:fs'
-import { basename, dirname } from 'node:path'
 import { type Config, loadConfig } from '../config/index.ts'
 import { buildEnvMap } from '../env/index.ts'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { readRegistryEntries } from '../registry/storage.ts'
 import type { RegistryEntry } from '../registry/types.ts'
-import { MAIN_NAMESPACE } from '../worktree/namespace.ts'
+import { resolveLabel } from './labels.ts'
+import { isSafeLinkUrl } from './links.ts'
 import { probePortAlive } from './liveness.ts'
 import type {
   PanelLink,
@@ -15,15 +15,6 @@ import type {
   PanelSnapshot,
   PanelWorktree,
 } from './types.ts'
-
-const NO_REPO_LABEL = '(no repo)'
-const GIT_SUFFIX = '.git'
-
-// Clickable-link scheme allowlist (XSS guard): a discoveryEnv resolving to
-// `javascript:`/`data:`/a DB URL is dropped here but still injected as env.
-const SAFE_LINK_SCHEMES = new Set(['http:', 'https:', 'ws:', 'wss:'])
-const isSafeLinkUrl = (value: string): boolean =>
-  URL.canParse(value) && SAFE_LINK_SCHEMES.has(new URL(value).protocol)
 
 const DEGRADED = {
   configInvalid: 'config invalid',
@@ -207,28 +198,6 @@ function buildProject(bucket: EnrichedWorktree[]): PanelProject {
     label: resolveLabel(sorted, gitCommonDir),
     worktrees: sorted.map((item) => item.worktree),
   }
-}
-
-// Explicit projectName wins (main-namespace config first, else first non-empty
-// by namespace sort); else derived from gitCommonDir; else '(no repo)'.
-function resolveLabel(
-  sorted: readonly EnrichedWorktree[],
-  gitCommonDir: null | string,
-): string {
-  const mainName =
-    sorted.find((item) => item.worktree.namespace === MAIN_NAMESPACE)
-      ?.projectName ?? null
-  const firstName =
-    sorted.find((item) => item.projectName !== null)?.projectName ?? null
-  return mainName ?? firstName ?? deriveLabel(gitCommonDir)
-}
-
-function deriveLabel(gitCommonDir: null | string): string {
-  if (gitCommonDir === null) {
-    return NO_REPO_LABEL
-  }
-  const base = basename(gitCommonDir)
-  return base === GIT_SUFFIX ? basename(dirname(gitCommonDir)) : base
 }
 
 // Projects sort by label; ties break on gitCommonDir string with null last.
