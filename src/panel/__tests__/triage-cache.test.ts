@@ -15,10 +15,12 @@ interface StubControls {
   readonly fetchPrStatus: ReturnType<typeof vi.fn>
   readonly ghIsAvailable: ReturnType<typeof vi.fn>
   readonly setNow: (ms: number) => void
+  readonly worktreeBranch: ReturnType<typeof vi.fn>
   readonly worktreeIsClean: ReturnType<typeof vi.fn>
 }
 
 function makeDeps(overrides?: {
+  readonly branch?: null | string
   readonly ghAvailable?: boolean
   readonly kind?: WorktreeKind
   readonly prStatus?: null | PanelPrStatus
@@ -42,6 +44,10 @@ function makeDeps(overrides?: {
       Promise.resolve(opts.prStatus ?? MERGED_PR),
   )
   const ghIsAvailable = vi.fn((): boolean => opts.ghAvailable ?? true)
+  const worktreeBranch = vi.fn(
+    (_worktreeRoot: string): null | string =>
+      'branch' in opts ? (opts.branch ?? null) : 'feature/panel-branch-name',
+  )
   const worktreeIsClean = vi.fn((_worktreeRoot: string): boolean | null =>
     'workingTreeClean' in opts ? (opts.workingTreeClean ?? null) : true,
   )
@@ -51,6 +57,7 @@ function makeDeps(overrides?: {
     fetchPrStatus,
     ghIsAvailable,
     now: () => nowMs,
+    worktreeBranch,
     worktreeIsClean,
   }
 
@@ -63,6 +70,7 @@ function makeDeps(overrides?: {
       setNow: (ms) => {
         nowMs = ms
       },
+      worktreeBranch,
       worktreeIsClean,
     },
     deps,
@@ -85,6 +93,7 @@ describe('createTriageProvider', () => {
     const triage = await provider.triageFor(ROOT)
 
     expect(triage).toEqual({
+      branch: 'feature/panel-branch-name',
       diskSizeBytes: 4096,
       kind: 'linked',
       prStatus: MERGED_PR,
@@ -92,6 +101,7 @@ describe('createTriageProvider', () => {
     })
     expect(controls.detectKind).toHaveBeenCalledExactlyOnceWith(ROOT)
     expect(controls.fetchPrStatus).toHaveBeenCalledExactlyOnceWith(ROOT)
+    expect(controls.worktreeBranch).toHaveBeenCalledExactlyOnceWith(ROOT)
     expect(controls.worktreeIsClean).toHaveBeenCalledExactlyOnceWith(ROOT)
     expect(controls.diskSizeBytes).toHaveBeenCalledExactlyOnceWith(ROOT)
   })
@@ -107,6 +117,7 @@ describe('createTriageProvider', () => {
     expect(second).toBe(first)
     expect(controls.detectKind).toHaveBeenCalledTimes(1)
     expect(controls.fetchPrStatus).toHaveBeenCalledTimes(1)
+    expect(controls.worktreeBranch).toHaveBeenCalledTimes(1)
     expect(controls.worktreeIsClean).toHaveBeenCalledTimes(1)
     expect(controls.diskSizeBytes).toHaveBeenCalledTimes(1)
   })
@@ -121,6 +132,7 @@ describe('createTriageProvider', () => {
 
     expect(controls.detectKind).toHaveBeenCalledTimes(2)
     expect(controls.fetchPrStatus).toHaveBeenCalledTimes(2)
+    expect(controls.worktreeBranch).toHaveBeenCalledTimes(2)
     expect(controls.worktreeIsClean).toHaveBeenCalledTimes(2)
     expect(controls.diskSizeBytes).toHaveBeenCalledTimes(2)
   })
@@ -150,6 +162,7 @@ describe('createTriageProvider', () => {
     expect(cached).toBe(forced)
     expect(controls.detectKind).toHaveBeenCalledTimes(1)
     expect(controls.fetchPrStatus).toHaveBeenCalledTimes(1)
+    expect(controls.worktreeBranch).toHaveBeenCalledTimes(1)
     expect(controls.worktreeIsClean).toHaveBeenCalledTimes(1)
     expect(controls.diskSizeBytes).toHaveBeenCalledTimes(1)
   })
@@ -223,6 +236,7 @@ describe('createTriageProvider — gh availability + construction', () => {
         }),
       ghIsAvailable: () => true,
       now: () => 1_000,
+      worktreeBranch: () => 'feature/async',
       worktreeIsClean: () => true,
     }
 
@@ -247,6 +261,15 @@ describe('createTriageProvider — gh availability + construction', () => {
 
     expect(triage.workingTreeClean).toBeNull()
     expect(triage.diskSizeBytes).toBeNull()
+  })
+
+  it('propagates a null branch when detached or git is unavailable', async () => {
+    const { deps } = makeDeps({ branch: null })
+    const provider = createTriageProvider({ deps })
+
+    const triage = await provider.triageFor(ROOT)
+
+    expect(triage.branch).toBeNull()
   })
 
   it('constructs with no options (defaults to the real boundary imports)', () => {

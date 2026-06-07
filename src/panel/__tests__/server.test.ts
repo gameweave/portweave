@@ -19,6 +19,7 @@ import type { PanelPrStatus } from '../types.ts'
 // ---------------------------------------------------------------------------
 
 interface PanelWorktreeBody {
+  branch: null | string
   degraded: boolean
   degradedReason: null | string
   diskSizeBytes: null | number
@@ -105,6 +106,7 @@ function makeEntry(
 // A fixed triage payload — no real gh/git/du. Keeps every server test fast,
 // deterministic, and (crucially) non-writing: the GET path stays a pure read.
 const STUB_TRIAGE: WorktreeTriage = {
+  branch: 'feature/panel-branch-name',
   diskSizeBytes: null,
   kind: 'linked',
   prStatus: null,

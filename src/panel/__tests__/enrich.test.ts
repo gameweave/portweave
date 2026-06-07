@@ -853,6 +853,7 @@ describe('buildPanelSnapshot — triage defaults (no provider)', () => {
     const snapshot = await buildPanelSnapshot(env, allNotRunning)
     const worktree = snapshot.projects[0].worktrees[0]
     expect(worktree.kind).toBe('linked')
+    expect(worktree.branch).toBeNull()
     expect(worktree.prStatus).toBeNull()
     expect(worktree.workingTreeClean).toBeNull()
     expect(worktree.diskSizeBytes).toBeNull()
@@ -889,6 +890,7 @@ describe('buildPanelSnapshot — triage stamping (injected stub)', () => {
     ])
 
     const triage: WorktreeTriage = {
+      branch: 'feature/x',
       diskSizeBytes: 1024,
       kind: 'linked',
       prStatus: mergedPr,
@@ -901,6 +903,7 @@ describe('buildPanelSnapshot — triage stamping (injected stub)', () => {
 
     const worktree = snapshot.projects[0].worktrees[0]
     expect(worktree.kind).toBe('linked')
+    expect(worktree.branch).toBe('feature/x')
     expect(worktree.prStatus).toEqual(mergedPr)
     expect(worktree.workingTreeClean).toBe(true)
     expect(worktree.diskSizeBytes).toBe(1024)
@@ -925,6 +928,7 @@ describe('buildPanelSnapshot — triage stamping (injected stub)', () => {
     ])
 
     const triage: WorktreeTriage = {
+      branch: 'main',
       diskSizeBytes: 2048,
       kind: 'main',
       prStatus: mergedPr,
@@ -950,6 +954,7 @@ describe('buildPanelSnapshot — triage stamping (injected stub)', () => {
     await rm(wt, { force: true, recursive: true })
 
     const triage: WorktreeTriage = {
+      branch: null,
       diskSizeBytes: 512,
       kind: 'linked',
       prStatus: null,
@@ -978,6 +983,7 @@ describe('buildPanelSnapshot — triage stamping (injected stub)', () => {
 // ---------------------------------------------------------------------------
 describe('buildPanelSnapshot — forceTriage passthrough', () => {
   const triage: WorktreeTriage = {
+    branch: 'feature/force',
     diskSizeBytes: 1024,
     kind: 'linked',
     prStatus: null,

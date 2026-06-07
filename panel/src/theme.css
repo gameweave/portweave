@@ -198,6 +198,13 @@ a:hover {
   font-weight: 600;
 }
 
+.worktree-branch {
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 400;
+}
+
 .worktree-root {
   color: var(--fg-muted);
   font-family: var(--mono);
