@@ -145,6 +145,7 @@ Portweave looks for `portweave.config.json`, starting in the working directory a
 ```json
 {
   "$schema": "https://raw.githubusercontent.com/gameweave/portweave/main/schema/v1.json",
+  "projectName": "My App",
   "services": {
     "api": {
       "envVar": "API_PORT",
@@ -179,6 +180,8 @@ Field reference:
 | `services.<name>.discoveryEnv` | optional     | A map of additional environment variables to derived values. Each value is a template; `${serviceName}` is replaced with that service's allocated port, `${pw:<field>}` with worktree metadata, and the reserved `${namespace}` token with the worktree namespace (all three covered below). Keys must be valid env-var names, unique across the whole config, and must not start with the reserved `PORTWEAVE_` prefix. A `${name}` that matches neither a declared service, a known metadata field, nor the reserved `${namespace}` token is a configuration error. |
 
 A copyable starting point lives at [`examples/web-app.config.json`](examples/web-app.config.json).
+
+One optional **top-level** field, `projectName`, is not a service setting: it is a 1–100 character display label the [`portweave panel`](#preview-dashboard-portweave-panel) dashboard uses to title this project's group (falling back to the git repository's directory name when unset). It has no effect on port allocation.
 
 Notes that affect how you write templates:
 
@@ -307,20 +310,48 @@ $ portweave show --json
 
 If the worktree has no allocation yet, `show` exits `1` and tells you to run `portweave run` first.
 
+### `portweave prune`
+
+Removes the current worktree's allocation from the machine-wide registry, freeing its port block — handy when you're done with a worktree (for example after its PR merged) and want the ports back.
+
+```bash
+portweave prune                  # prune the current worktree's allocation
+portweave prune --path ../old    # prune another worktree without cd-ing into it
+```
+
+It removes only the targeted allocation, leaves every other entry untouched, and works whether or not the panel is running. If the worktree has no allocation it exits `1` and says so. Deleting the worktree's files is left to you (`git worktree remove …`); `prune` only reclaims the port allocation.
+
 ## Preview dashboard (`portweave panel`)
 
-`portweave show` answers "what ports does _this_ worktree have?" The panel answers the cross-cutting version: stand back and see _everything_ allocated on the machine at once. Because ports are dynamic, a feature worktree's web app might be on `30002` today and `30107` tomorrow — the panel gives you a stable home page of clickable preview links instead of a port hunt.
+`portweave show` answers "what ports does _this_ worktree have?" The panel answers the cross-cutting version: stand back and see _everything_ allocated on the machine at once — and act on it. Because ports are dynamic, a feature worktree's web app might be on `30002` today and `30107` tomorrow, so the panel gives you a stable home page of clickable preview links instead of a port hunt, plus lightweight worktree triage and cleanup.
 
 ```bash
 portweave panel
 portweave panel --port 8080   # use a different port
 ```
 
-It starts a local, **read-only** web dashboard of every machine-wide allocation, grouped project → worktree → service. Each service with a discovery URL renders as a clickable link that opens the running service; services without a URL template show their port. A per-port live / not-running indicator distinguishes an active preview from a stale allocation at a glance, and a worktree whose config or directory is gone still appears, marked degraded.
+It starts a local web dashboard of every machine-wide allocation, grouped **project → worktree → service** — groups are collapsible, and the collapse state is remembered in your browser. For each worktree it shows:
 
-- Default port **`7733`**; override with `--port <n>`.
-- Binds **loopback only** (`127.0.0.1`) — no auth, no remote access.
-- Runs in the **foreground** on demand; press **Ctrl-C** to stop. There is no daemon, and the panel never writes the registry — it is a pure viewer.
+- **A clickable link for every service.** A service with an `http(s)` `discoveryEnv` URL uses it; every other service gets a synthesized `http://localhost:<port>` link, so each row is one click from a preview. A per-port **live / not-running** badge distinguishes an active server from a stale allocation.
+- **Triage signals.** Each worktree shows its **on-disk size**, whether it is the **main checkout** or a **linked worktree**, and — when the GitHub CLI (`gh`) is installed and authenticated — its **PR status** (open / closed / merged), resolved by running `gh` inside the worktree. A _linked_ worktree whose PR is merged-or-closed **and** whose working tree is clean is flagged **safe to prune**; the main checkout is never flagged, and a merged-but-dirty worktree is deliberately held back.
+- **Cleanup and quick actions.** **Prune** reclaims a worktree's allocation (the same operation as [`portweave prune`](#portweave-prune)); the panel also shows the exact `git worktree remove …` command to copy — it never deletes directories itself. On macOS, quick actions open the worktree in your **editor** or a **terminal**, or copy its path.
+
+Operational notes:
+
+- Default port **`6767`**; override with `--port <n>`. If that port is busy, the panel automatically falls forward to the next free port and prints the URL it actually bound.
+- Binds **loopback only** (`127.0.0.1`) and runs in the **foreground** on demand — press **Ctrl-C** to stop. There is no daemon.
+- **Viewing never writes the registry.** The one mutating action, **prune**, is guarded by `Origin`/`Host` checks, a per-session CSRF token, and explicit confirmation — a loopback server is still reachable by any page open in your browser. PR status and disk sizes are cached briefly so refreshes stay fast; if `gh` is missing or unauthenticated, PR status is omitted and everything else renders normally.
+
+**Tip — label your projects.** The panel groups worktrees by git repository and labels each group with the optional [`projectName`](#configuration) field from `portweave.config.json`, falling back to the repository's directory name. Set it for a clean, stable label:
+
+```json
+{
+  "projectName": "My App",
+  "services": { "web": { "envVar": "WEB_PORT" } }
+}
+```
+
+**Tip — choose your editor.** The "open in editor" action uses [`PORTWEAVE_EDITOR`](#environment-variable-overrides) when set (e.g. `PORTWEAVE_EDITOR=cursor`), otherwise the first of `code` or `cursor` on your `PATH`. The value must be a single executable (a name on `PATH` or an absolute path) — it runs without a shell, so `open -a Cursor` won't work.
 
 ## Recipes
 
@@ -502,6 +533,8 @@ These variables tune allocation behavior. Set them in your shell, a `.env` consu
 | `XDG_CONFIG_HOME`           | Base directory for the registry. Portweave uses `$XDG_CONFIG_HOME/portweave/`.                                                              | `~/.config`                                             |
 
 Malformed values for `PORTWEAVE_POOL_RANGE` and `PORTWEAVE_LOCK_TIMEOUT_MS` fall back to the default; the pool-range case also prints a one-line warning to stderr so a typo doesn't silently change allocations. A non-integer `PORTWEAVE_OFFSET` is a hard error (`PW0202`).
+
+`PORTWEAVE_EDITOR` selects the editor the [`portweave panel`](#preview-dashboard-portweave-panel) "open in editor" action launches: set it to a single executable on your `PATH` (e.g. `cursor`) or an absolute path — it is run without a shell. When unset, the panel uses the first of `code` or `cursor` found on `PATH`.
 
 ## Runtime library API
 
