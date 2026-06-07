@@ -183,11 +183,6 @@ a:hover {
   overflow: hidden;
 }
 
-.worktree-live {
-  border-color: rgba(63, 185, 80, 0.45);
-  box-shadow: inset 3px 0 0 var(--ok);
-}
-
 .worktree-header {
   align-items: center;
   border-bottom: 1px solid var(--border);
