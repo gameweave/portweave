@@ -15,108 +15,96 @@ import { fileURLToPath } from 'node:url'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { err, ok, type Result } from '../result.ts'
 import { buildPanelSnapshot } from './enrich.ts'
+import {
+  dispatchPost,
+  HEADER_CONTENT_TYPE,
+  MIME_HTML,
+  MIME_JSON,
+  MSG_NOT_FOUND,
+  sendHtml,
+  sendJson,
+  serveIndexHtml,
+  STATUS_NOT_FOUND,
+  STATUS_OK,
+  STATUS_SERVER_ERROR,
+} from './post-handlers.ts'
+import { createPanelSecurity, type PanelSecurity } from './security.ts'
+import { createTriageProvider, type TriageProvider } from './triage-cache.ts'
 
 export interface StartPanelServerOptions {
   env: NodeJS.ProcessEnv
   port: number
+  security?: PanelSecurity // injected in tests for a known CSRF/gate
   signal?: AbortSignal
+  triage?: TriageProvider // injected in tests to avoid gh/git/du
 }
 
 export interface RunningPanelServer {
-  /** Resolves when the server has fully closed. */
   readonly closed: Promise<void>
-  /** The actual bound port (useful when port 0 was requested in tests). */
-  readonly port: number
+  readonly port: number // the actual bound port (useful when port 0 in tests)
+}
+
+interface HandlerDeps {
+  readonly env: NodeJS.ProcessEnv
+  readonly security: PanelSecurity
+  readonly triage: TriageProvider
 }
 
 const LOOPBACK_HOST = '127.0.0.1'
-
+const ORIGIN_BASE = `http://${LOOPBACK_HOST}`
 const HTTP_METHOD_GET = 'GET'
-
-const STATUS_OK = 200
-const STATUS_NOT_FOUND = 404
+const HTTP_METHOD_POST = 'POST'
 const STATUS_METHOD_NOT_ALLOWED = 405
-const STATUS_SERVER_ERROR = 500
-const STATUS_UNAVAILABLE = 503
-
-const HEADER_CONTENT_TYPE = 'Content-Type'
 const HEADER_ALLOW = 'Allow'
-
-const MIME_JSON = 'application/json'
-const MIME_HTML = 'text/html'
-const MIME_CSS = 'text/css'
-const MIME_JS = 'text/javascript'
-const MIME_SVG = 'image/svg+xml'
-const MIME_PNG = 'image/png'
-const MIME_ICO = 'image/x-icon'
-const MIME_WOFF2 = 'font/woff2'
-const MIME_OCTET_STREAM = 'application/octet-stream'
-
+const ALLOWED_METHODS = `${HTTP_METHOD_GET}, ${HTTP_METHOD_POST}`
 const ROUTE_API_ALLOCATIONS = '/api/allocations'
 const ROUTE_ROOT = '/'
-
 const INDEX_FILENAME = 'index.html'
-
-const BODY_NOT_FOUND = 'not found'
 const BODY_METHOD_NOT_ALLOWED = 'method not allowed'
-const BODY_SNAPSHOT_FAILED = '{"error":"snapshot-failed"}'
-const BODY_NOT_BUILT = 'panel UI not built — run npm run build'
 
-// Partial: an unknown extension types as `string | undefined` so the
-// MIME_OCTET_STREAM fallback in mimeForFile is a real (not dead) branch.
-const EXTENSION_MIME_MAP: Readonly<Partial<Record<string, string>>> = {
-  '.css': MIME_CSS,
-  '.html': MIME_HTML,
-  '.ico': MIME_ICO,
-  '.js': MIME_JS,
-  '.json': MIME_JSON,
-  '.png': MIME_PNG,
-  '.svg': MIME_SVG,
-  '.woff2': MIME_WOFF2,
-}
-
-// Resolve the bundled UI dir relative to the compiled module (symlink-safe per
-// decision-log #36). At runtime server.js and the built UI share dist/panel/,
-// so the offset is './'; under Vitest it resolves to src/panel/ (no index.html).
+// Bundled UI dir relative to the compiled module (symlink-safe, decision-log
+// #36): dist/panel/ at runtime, src/panel/ (no index.html) under Vitest.
 const PANEL_ASSET_DIR = fileURLToPath(new URL('./', import.meta.url))
 
-function panelUiIsBuilt(): boolean {
-  return existsSync(join(PANEL_ASSET_DIR, INDEX_FILENAME))
+// Partial keeps mimeForFile's octet-stream fallback a real (not dead) branch.
+const EXTENSION_MIME_MAP: Readonly<Partial<Record<string, string>>> = {
+  '.css': 'text/css',
+  '.html': MIME_HTML,
+  '.ico': 'image/x-icon',
+  '.js': 'text/javascript',
+  '.json': MIME_JSON,
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.woff2': 'font/woff2',
 }
 
 function mimeForFile(filePath: string): string {
-  const extension = extname(filePath).toLowerCase()
-  return EXTENSION_MIME_MAP[extension] ?? MIME_OCTET_STREAM
-}
-
-function sendText(res: ServerResponse, status: number, body: string): void {
-  res.writeHead(status, { [HEADER_CONTENT_TYPE]: MIME_HTML })
-  res.end(body)
+  return (
+    EXTENSION_MIME_MAP[extname(filePath).toLowerCase()] ??
+    'application/octet-stream'
+  )
 }
 
 async function handleAllocations(
   res: ServerResponse,
-  env: NodeJS.ProcessEnv,
+  deps: HandlerDeps,
+  refresh: boolean,
 ): Promise<void> {
+  // ?refresh=1 forces a recompute on the server's own provider (warming its
+  // persistent cache); the ordinary path serves its cache. Still a read.
+  const opts = { forceTriage: refresh, triage: deps.triage }
   try {
-    const snapshot = await buildPanelSnapshot(env)
-    res.writeHead(STATUS_OK, { [HEADER_CONTENT_TYPE]: MIME_JSON })
-    res.end(JSON.stringify(snapshot))
+    sendJson(res, STATUS_OK, await buildPanelSnapshot(deps.env, opts))
   } catch {
-    // Defensive: enrich never throws per-entry, so this only fires on an
-    // exceptional registry read (corrupt/locked). Failure rides the response.
-    res.writeHead(STATUS_SERVER_ERROR, { [HEADER_CONTENT_TYPE]: MIME_JSON })
-    res.end(BODY_SNAPSHOT_FAILED)
+    // enrich only throws on an exceptional registry read (corrupt/locked).
+    sendJson(res, STATUS_SERVER_ERROR, { error: 'snapshot-failed' })
   }
 }
 
-// Resolve a requested asset to an absolute path inside PANEL_ASSET_DIR, or
-// undefined if it would escape via `..` — standard path-traversal hygiene even
-// on a loopback-only server.
+// Asset path inside PANEL_ASSET_DIR, or undefined if it escapes via `..`.
 function resolveAssetPath(pathname: string): string | undefined {
   const decoded = normalize(decodeURIComponent(pathname))
-  const relative = decoded.replace(/^[/\\]+/, '')
-  const absolute = resolvePath(PANEL_ASSET_DIR, relative)
+  const absolute = resolvePath(PANEL_ASSET_DIR, decoded.replace(/^[/\\]+/, ''))
   const root = resolvePath(PANEL_ASSET_DIR)
   if (absolute !== root && !absolute.startsWith(root + sep)) {
     return undefined
@@ -124,61 +112,68 @@ function resolveAssetPath(pathname: string): string | undefined {
   return absolute
 }
 
-function serveFile(res: ServerResponse, filePath: string): void {
-  if (!existsSync(filePath)) {
-    sendText(res, STATUS_NOT_FOUND, BODY_NOT_FOUND)
-    return
-  }
-  res.writeHead(STATUS_OK, { [HEADER_CONTENT_TYPE]: mimeForFile(filePath) })
-  createReadStream(filePath).pipe(res)
-}
-
-function handleStatic(res: ServerResponse, pathname: string): void {
-  // Only the SPA entry point reports 503 when the bundle is unbuilt (so the
-  // cause is clear); unknown asset paths fall through to a normal 404 below.
+// `/` is read + CSRF-injected (503 when unbuilt); assets stream; else 404.
+function handleStatic(
+  res: ServerResponse,
+  pathname: string,
+  csrfToken: string,
+): void {
   if (pathname === ROUTE_ROOT) {
-    if (!panelUiIsBuilt()) {
-      sendText(res, STATUS_UNAVAILABLE, BODY_NOT_BUILT)
-      return
-    }
-    serveFile(res, join(PANEL_ASSET_DIR, INDEX_FILENAME))
+    void serveIndexHtml(res, join(PANEL_ASSET_DIR, INDEX_FILENAME), csrfToken)
     return
   }
   const target = resolveAssetPath(pathname)
-  if (target === undefined) {
-    sendText(res, STATUS_NOT_FOUND, BODY_NOT_FOUND)
+  if (target === undefined || !existsSync(target)) {
+    sendHtml(res, STATUS_NOT_FOUND, MSG_NOT_FOUND)
     return
   }
-  serveFile(res, target)
+  res.writeHead(STATUS_OK, { [HEADER_CONTENT_TYPE]: mimeForFile(target) })
+  createReadStream(target).pipe(res)
 }
 
-function pathnameOf(req: IncomingMessage): string {
-  return new URL(req.url ?? ROUTE_ROOT, `http://${LOOPBACK_HOST}`).pathname
+function methodNotAllowed(res: ServerResponse): void {
+  res.writeHead(STATUS_METHOD_NOT_ALLOWED, {
+    [HEADER_ALLOW]: ALLOWED_METHODS,
+    [HEADER_CONTENT_TYPE]: MIME_HTML,
+  })
+  res.end(BODY_METHOD_NOT_ALLOWED)
 }
 
-function createHandler(env: NodeJS.ProcessEnv) {
+function handleGet(url: URL, res: ServerResponse, deps: HandlerDeps): void {
+  if (url.pathname === ROUTE_API_ALLOCATIONS) {
+    const refresh = url.searchParams.get('refresh') === '1'
+    void handleAllocations(res, deps, refresh)
+    return
+  }
+  handleStatic(res, url.pathname, deps.security.csrfToken)
+}
+
+function createHandler(deps: HandlerDeps) {
   return (req: IncomingMessage, res: ServerResponse): void => {
-    if (req.method !== HTTP_METHOD_GET) {
-      res.writeHead(STATUS_METHOD_NOT_ALLOWED, {
-        [HEADER_ALLOW]: HTTP_METHOD_GET,
-        [HEADER_CONTENT_TYPE]: MIME_HTML,
-      })
-      res.end(BODY_METHOD_NOT_ALLOWED)
+    const url = new URL(req.url ?? ROUTE_ROOT, ORIGIN_BASE)
+    if (req.method === HTTP_METHOD_GET) {
+      handleGet(url, res, deps)
       return
     }
-    const pathname = pathnameOf(req)
-    if (pathname === ROUTE_API_ALLOCATIONS) {
-      void handleAllocations(res, env)
+    // /api/allocations is GET-only (POST → 405, not 404); mutating routes go
+    // through the security-gated dispatcher.
+    const isMutating =
+      req.method === HTTP_METHOD_POST && url.pathname !== ROUTE_API_ALLOCATIONS
+    if (isMutating) {
+      const { env, security } = deps
+      void dispatchPost(req, res, url.pathname, { env, security })
       return
     }
-    handleStatic(res, pathname)
+    methodNotAllowed(res)
   }
 }
 
 export function startPanelServer(
   options: StartPanelServerOptions,
 ): Promise<Result<RunningPanelServer, PortweaveError>> {
-  const server = createServer(createHandler(options.env))
+  // The request handler needs security (CSRF/Host allowlist), which depends on
+  // the bound port — known only after 'listening' — so attach it there.
+  const server = createServer()
 
   return new Promise<Result<RunningPanelServer, PortweaveError>>((resolve) => {
     server.once('error', (error: Error) => {
@@ -198,6 +193,12 @@ export function startPanelServer(
         address !== null && typeof address !== 'string'
           ? address.port
           : options.port
+      // One provider + security instance per server, held for the process
+      // lifetime so the triage cache persists across Refreshes.
+      const triage = options.triage ?? createTriageProvider()
+      const security = options.security ?? createPanelSecurity(boundPort)
+      const deps = { env: options.env, security, triage }
+      server.on('request', createHandler(deps))
       const closed = wireShutdown(server, options.signal)
       resolve(ok({ closed, port: boundPort }))
     })
@@ -206,10 +207,9 @@ export function startPanelServer(
   })
 }
 
-// Wire SIGINT/SIGTERM and an optional AbortSignal (test stop hook) to
-// server.close(); resolve `closed` on the 'close' event. Listeners are removed
-// on teardown so repeat startPanelServer calls in one process do not leak (same
-// shape as src/cli/spawn.ts). Idempotent: a second trigger during close is a no-op.
+// Wire SIGINT/SIGTERM + an optional AbortSignal to server.close(); resolve
+// `closed` on 'close'. Listeners removed on teardown so repeat starts in one
+// process do not leak. Idempotent during close.
 function wireShutdown(
   server: ReturnType<typeof createServer>,
   signal: AbortSignal | undefined,
@@ -222,11 +222,9 @@ function wireShutdown(
       }
       closing = true
       server.close()
-      // Drop idle keep-alive sockets so 'close' fires promptly on Ctrl-C / abort
-      // instead of waiting out keepAliveTimeout for a lingering client.
+      // Drop idle keep-alive sockets so 'close' fires promptly on Ctrl-C / abort.
       server.closeAllConnections()
     }
-
     process.on('SIGINT', shutdown)
     process.on('SIGTERM', shutdown)
 

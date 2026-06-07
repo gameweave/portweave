@@ -5,6 +5,7 @@ import type { PanelSnapshot } from './types.ts'
 import { fetchSnapshot } from './api.ts'
 import { EmptyState } from './components/EmptyState.tsx'
 import { ProjectGroup } from './components/ProjectGroup.tsx'
+import { useCollapseState } from './hooks/useCollapseState.ts'
 
 function formatGeneratedAt(iso: string): string {
   const date = new Date(iso)
@@ -15,12 +16,13 @@ export function App() {
   const [snapshot, setSnapshot] = useState<PanelSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<null | string>(null)
+  const collapse = useCollapseState()
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options: { refresh?: boolean } = {}) => {
     setLoading(true)
     setError(null)
     try {
-      const next = await fetchSnapshot()
+      const next = await fetchSnapshot({ refresh: options.refresh })
       setSnapshot(next)
     } catch (caught: unknown) {
       setError(
@@ -35,7 +37,16 @@ export function App() {
     void refresh()
   }, [refresh])
 
+  // After a successful prune/open the registry / on-disk state has changed, so
+  // force a triage-cache bypass to re-check immediately instead of waiting out
+  // the 60 s TTL. See 02-write-actions-triage.md B-5.
+  const onAction = useCallback(() => {
+    void refresh({ refresh: true })
+  }, [refresh])
+
   const projects = snapshot?.projects ?? []
+  const prStatusUnavailable = snapshot !== null && !snapshot.prStatusAvailable
+  const launchSupported = snapshot?.launchSupported ?? false
 
   return (
     <div className="app">
@@ -43,7 +54,7 @@ export function App() {
         <div>
           <h1 className="app-title">portweave panel</h1>
           <p className="app-subtitle">
-            Read-only view of every allocation on this machine.
+            Every allocation on this machine, with triage and quick actions.
           </p>
         </div>
         <div className="header-actions">
@@ -77,6 +88,13 @@ export function App() {
         </div>
       ) : null}
 
+      {prStatusUnavailable ? (
+        <div className="hint-panel" role="note">
+          PR status unavailable — install/authenticate <code>gh</code> to see
+          per-worktree PR state.
+        </div>
+      ) : null}
+
       {loading && snapshot === null ? (
         <div className="state-panel">Loading allocations…</div>
       ) : null}
@@ -88,6 +106,9 @@ export function App() {
       {projects.map((project) => (
         <ProjectGroup
           key={project.gitCommonDir ?? project.label}
+          collapse={collapse}
+          launchSupported={launchSupported}
+          onAction={onAction}
           project={project}
         />
       ))}

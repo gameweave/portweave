@@ -4,12 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Command } from 'commander'
-import { withRegistry } from '../../registry/storage.ts'
 import type { RegistryEntry } from '../../registry/types.ts'
 import { resolveAllocationKey } from '../../worktree/key.ts'
 import type { AllocationKey } from '../../worktree/key.ts'
 import { registerShowCommand, runShow, type ShowOptions } from '../show.ts'
-import { makeWritable } from './_helpers.ts'
+import {
+  expectExitCode,
+  makeEntry,
+  makeWritable,
+  runCapture,
+  seedEntry,
+} from './_helpers.ts'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -27,15 +32,6 @@ const SINGLE_SERVICE_CONFIG = JSON.stringify({
     api: { envVar: 'API_PORT' },
   },
 })
-
-async function seedRegistryEntry(
-  env: NodeJS.ProcessEnv,
-  entry: RegistryEntry,
-): Promise<void> {
-  await withRegistry((handle) => {
-    handle.upsert(entry)
-  }, env)
-}
 
 async function readRegistryEntries(
   configDir: string,
@@ -76,14 +72,6 @@ afterEach(async () => {
   await rm(worktreeDir, { force: true, recursive: true })
 })
 
-function makeEntry(
-  key: AllocationKey,
-  ports: Record<string, number> = { api: 3104, ws: 3105 },
-  lastUsedAt = '2026-01-01T00:00:00.000Z',
-): RegistryEntry {
-  return { key, lastUsedAt, namespace: key.namespace, ports }
-}
-
 function makeOptions(overrides: Partial<ShowOptions> = {}): ShowOptions {
   return { cwd: worktreeDir, env, ...overrides }
 }
@@ -93,18 +81,13 @@ function makeOptions(overrides: Partial<ShowOptions> = {}): ShowOptions {
 // ---------------------------------------------------------------------------
 describe('runShow — human banner', () => {
   it('exits 0 and prints worktree + allocated lines per service', async () => {
-    await seedRegistryEntry(env, makeEntry(worktreeKey))
+    await seedEntry(env, makeEntry(worktreeKey))
 
-    const out = makeWritable()
-    const serr = makeWritable()
-    const result = await runShow(
-      makeOptions({ stderr: serr.stream, stdout: out.stream }),
+    const { out, result } = await runCapture((streams) =>
+      runShow(makeOptions(streams)),
     )
 
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.value.exitCode).toBe(0)
-    }
+    expectExitCode(result, 0)
 
     const stdout = out.value()
     expect(stdout).toContain('[portweave] worktree:')
@@ -125,18 +108,13 @@ describe('runShow — human banner', () => {
 // ---------------------------------------------------------------------------
 describe('runShow — JSON mode', () => {
   it('exits 0 and prints valid JSON with required keys', async () => {
-    await seedRegistryEntry(env, makeEntry(worktreeKey))
+    await seedEntry(env, makeEntry(worktreeKey))
 
-    const out = makeWritable()
-    const serr = makeWritable()
-    const result = await runShow(
-      makeOptions({ json: true, stderr: serr.stream, stdout: out.stream }),
+    const { out, result } = await runCapture((streams) =>
+      runShow(makeOptions({ ...streams, json: true })),
     )
 
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.value.exitCode).toBe(0)
-    }
+    expectExitCode(result, 0)
 
     const parsed = JSON.parse(out.value()) as {
       env: Record<string, string>
@@ -163,23 +141,19 @@ describe('runShow — JSON mode', () => {
 // ---------------------------------------------------------------------------
 describe('runShow — read-only contract', () => {
   it('does not write .portweave/current.env', async () => {
-    await seedRegistryEntry(env, makeEntry(worktreeKey))
+    await seedEntry(env, makeEntry(worktreeKey))
 
-    const out = makeWritable()
-    const serr = makeWritable()
-    await runShow(makeOptions({ stderr: serr.stream, stdout: out.stream }))
+    await runCapture((streams) => runShow(makeOptions(streams)))
 
     const envFilePath = join(worktreeDir, '.portweave', 'current.env')
     expect(existsSync(envFilePath)).toBe(false)
   })
 
   it('does not write .portweave/current.env in JSON mode either', async () => {
-    await seedRegistryEntry(env, makeEntry(worktreeKey))
+    await seedEntry(env, makeEntry(worktreeKey))
 
-    const out = makeWritable()
-    const serr = makeWritable()
-    await runShow(
-      makeOptions({ json: true, stderr: serr.stream, stdout: out.stream }),
+    await runCapture((streams) =>
+      runShow(makeOptions({ ...streams, json: true })),
     )
 
     const envFilePath = join(worktreeDir, '.portweave', 'current.env')
@@ -193,23 +167,18 @@ describe('runShow — read-only contract', () => {
 describe('runShow — touch semantics', () => {
   it('advances lastUsedAt but preserves ports and namespace', async () => {
     const oldTime = '2026-01-01T00:00:00.000Z'
-    await seedRegistryEntry(
+    await seedEntry(
       env,
       makeEntry(worktreeKey, { api: 3104, ws: 3105 }, oldTime),
     )
 
-    const out = makeWritable()
-    const serr = makeWritable()
     const before = Date.now()
-    const result = await runShow(
-      makeOptions({ stderr: serr.stream, stdout: out.stream }),
+    const { result } = await runCapture((streams) =>
+      runShow(makeOptions(streams)),
     )
     const after = Date.now()
 
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.value.exitCode).toBe(0)
-    }
+    expectExitCode(result, 0)
 
     const entries = await readRegistryEntries(configDir)
     expect(entries).toHaveLength(1)
@@ -235,16 +204,11 @@ describe('runShow — touch semantics', () => {
 describe('runShow — missing allocation (human)', () => {
   it('exits 1, writes to stderr, stdout is empty', async () => {
     // No registry entry seeded
-    const out = makeWritable()
-    const serr = makeWritable()
-    const result = await runShow(
-      makeOptions({ stderr: serr.stream, stdout: out.stream }),
+    const { out, result, serr } = await runCapture((streams) =>
+      runShow(makeOptions(streams)),
     )
 
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.value.exitCode).toBe(1)
-    }
+    expectExitCode(result, 1)
     expect(serr.value()).toContain('no allocation for this worktree')
     expect(serr.value()).toContain('portweave run')
     expect(out.value()).toBe('')
@@ -256,16 +220,11 @@ describe('runShow — missing allocation (human)', () => {
 // ---------------------------------------------------------------------------
 describe('runShow — missing allocation (JSON)', () => {
   it('exits 1, stdout is {"error":"no-allocation"}, stderr is empty', async () => {
-    const out = makeWritable()
-    const serr = makeWritable()
-    const result = await runShow(
-      makeOptions({ json: true, stderr: serr.stream, stdout: out.stream }),
+    const { out, result, serr } = await runCapture((streams) =>
+      runShow(makeOptions({ ...streams, json: true })),
     )
 
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.value.exitCode).toBe(1)
-    }
+    expectExitCode(result, 1)
     expect(out.value()).toBe('{"error":"no-allocation"}\n')
     expect(serr.value()).toBe('')
   })
@@ -276,24 +235,18 @@ describe('runShow — missing allocation (JSON)', () => {
 // ---------------------------------------------------------------------------
 describe('runShow — stickiness across two calls', () => {
   it('both return same ports and lastUsedAt strictly advances', async () => {
-    await seedRegistryEntry(env, makeEntry(worktreeKey))
+    await seedEntry(env, makeEntry(worktreeKey))
 
     const out1 = makeWritable()
     const r1 = await runShow(makeOptions({ json: true, stdout: out1.stream }))
-    expect(r1.ok).toBe(true)
-    if (r1.ok) {
-      expect(r1.value.exitCode).toBe(0)
-    }
+    expectExitCode(r1, 0)
 
     // Small delay so timestamps differ
     await new Promise((resolve) => setTimeout(resolve, 50))
 
     const out2 = makeWritable()
     const r2 = await runShow(makeOptions({ json: true, stdout: out2.stream }))
-    expect(r2.ok).toBe(true)
-    if (r2.ok) {
-      expect(r2.value.exitCode).toBe(0)
-    }
+    expectExitCode(r2, 0)
 
     const p1 = (JSON.parse(out1.value()) as { ports: Record<string, number> })
       .ports
@@ -321,19 +274,11 @@ describe('runShow — upstream error propagation', () => {
     const noConfigDir = await mkdtemp(join(tmpdir(), 'pw-show-nocfg-'))
     try {
       // config file is absent — loadConfig fails before the registry lookup
-      const out = makeWritable()
-      const serr = makeWritable()
-      const result = await runShow({
-        cwd: noConfigDir,
-        env,
-        stderr: serr.stream,
-        stdout: out.stream,
-      })
+      const { out, result, serr } = await runCapture((streams) =>
+        runShow({ cwd: noConfigDir, env, ...streams }),
+      )
 
-      expect(result.ok).toBe(true)
-      if (result.ok) {
-        expect(result.value.exitCode).toBe(1)
-      }
+      expectExitCode(result, 1)
       expect(serr.value().length).toBeGreaterThan(0)
       expect(out.value()).toBe('')
     } finally {
@@ -353,17 +298,13 @@ describe('runShow — JSON sort order', () => {
       SINGLE_SERVICE_CONFIG,
     )
 
-    await seedRegistryEntry(env, makeEntry(worktreeKey, { api: 3100 }))
+    await seedEntry(env, makeEntry(worktreeKey, { api: 3100 }))
 
-    const out = makeWritable()
-    const result = await runShow(
-      makeOptions({ json: true, stdout: out.stream }),
+    const { out, result } = await runCapture((streams) =>
+      runShow(makeOptions({ ...streams, json: true })),
     )
 
-    expect(result.ok).toBe(true)
-    if (result.ok) {
-      expect(result.value.exitCode).toBe(0)
-    }
+    expectExitCode(result, 0)
 
     const raw = out.value().trimEnd()
     const parsed = JSON.parse(raw) as {

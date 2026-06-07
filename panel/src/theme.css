@@ -10,6 +10,8 @@
   --accent: #58a6ff;
   --ok: #3fb950;
   --warn: #d29922;
+  --danger: #f85149;
+  --merged: #a371f7;
   --border: #30363d;
 
   --radius: 6px;
@@ -136,6 +138,33 @@ a:hover {
   font-size: 16px;
   font-weight: 600;
   margin: 0;
+}
+
+/* Collapse toggle (shared by project + worktree headers) ------------------- */
+
+.collapse-toggle {
+  align-items: center;
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.collapse-toggle:hover .project-label,
+.collapse-toggle:hover .worktree-namespace {
+  color: var(--accent);
+}
+
+.collapse-chevron {
+  color: var(--fg-muted);
+  font-size: 11px;
+  width: 12px;
 }
 
 .project-path {
@@ -350,4 +379,181 @@ a:hover {
 .error-message {
   color: #ff7b72;
   font-size: 13px;
+}
+
+/* Hint panel (non-blocking) ----------------------------------------------- */
+
+.hint-panel {
+  background: rgba(88, 166, 255, 0.08);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg-muted);
+  font-size: 13px;
+  margin-bottom: 24px;
+  padding: 10px 14px;
+}
+
+.hint-panel code {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 1px 5px;
+}
+
+/* Triage chrome: PR badge / main tag / disk size / safe-to-prune ---------- */
+
+.pr-badge {
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+}
+
+.pr-open {
+  background: rgba(63, 185, 80, 0.15);
+  border: 1px solid var(--ok);
+  color: var(--ok);
+}
+
+.pr-merged {
+  background: rgba(163, 113, 247, 0.15);
+  border: 1px solid var(--merged);
+  color: var(--merged);
+}
+
+.pr-closed {
+  background: rgba(248, 81, 73, 0.15);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}
+
+a.pr-badge:hover {
+  text-decoration: none;
+  filter: brightness(1.15);
+}
+
+.main-tag {
+  background: rgba(88, 166, 255, 0.15);
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+  text-transform: uppercase;
+}
+
+.prune-pill {
+  background: rgba(63, 185, 80, 0.12);
+  border: 1px solid var(--ok);
+  border-radius: 999px;
+  color: var(--ok);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 8px;
+}
+
+.disk-size {
+  color: var(--fg-muted);
+  font-family: var(--mono);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+/* When disk-size pushes right, the root sits on the next flex line. */
+.disk-size + .worktree-root {
+  flex-basis: 100%;
+  margin-left: 0;
+}
+
+/* Worktree actions -------------------------------------------------------- */
+
+.worktree-actions {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+}
+
+.action-button {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--fg);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease;
+}
+
+.action-button:hover:not(:disabled) {
+  background: #21262d;
+  border-color: var(--fg-muted);
+}
+
+.action-button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.action-danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.action-danger:hover:not(:disabled) {
+  background: rgba(248, 81, 73, 0.12);
+  border-color: var(--danger);
+}
+
+.confirm-row {
+  align-items: center;
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.confirm-text {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.force-warning {
+  align-items: center;
+  border-top: 1px solid var(--border);
+  color: var(--warn);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 14px;
+}
+
+.force-warning-text {
+  font-size: 12px;
+}
+
+.force-command {
+  background: var(--bg);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  color: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 2px 8px;
+  user-select: all;
+}
+
+.action-error {
+  border-top: 1px solid var(--border);
+  color: #ff7b72;
+  font-size: 12px;
+  padding: 8px 14px;
 }

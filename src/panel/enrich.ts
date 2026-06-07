@@ -4,9 +4,12 @@ import { buildEnvMap } from '../env/index.ts'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { readRegistryEntries } from '../registry/storage.ts'
 import type { RegistryEntry } from '../registry/types.ts'
+import { DEFAULT_TRIAGE, stampTriage } from './enrich-triage.ts'
 import { resolveLabel } from './labels.ts'
 import { isSafeLinkUrl } from './links.ts'
 import { probePortAlive } from './liveness.ts'
+import { resolveServiceLinks } from './service-links.ts'
+import type { TriageProvider, WorktreeTriage } from './triage-cache.ts'
 import type {
   PanelLink,
   PanelLivenessStatus,
@@ -32,7 +35,9 @@ interface EnrichedWorktree {
 }
 
 export interface EnrichDeps {
+  forceTriage?: boolean
   probe?: (port: number) => Promise<PanelLivenessStatus>
+  triage?: TriageProvider
 }
 
 export async function buildPanelSnapshot(
@@ -48,13 +53,16 @@ export async function buildPanelSnapshot(
   const entries = entriesResult.value
 
   const statusByPort = await probeAllPorts(entries, probe)
+  const { forceTriage, triage } = deps ?? {}
   const enriched = await Promise.all(
-    entries.map((entry) => enrichEntry(entry, statusByPort)),
+    entries.map((e) => enrichEntry(e, statusByPort, triage, forceTriage)),
   )
 
   return {
     generatedAt: new Date().toISOString(),
+    launchSupported: process.platform === 'darwin',
     projects: groupIntoProjects(enriched),
+    prStatusAvailable: triage?.prStatusAvailable ?? false,
   }
 }
 
@@ -75,13 +83,20 @@ async function probeAllPorts(
 }
 
 // Never throws: config/env failures become the degraded shape (one bad entry
-// must never break the whole page).
+// must never break the whole page). Triage is fetched once up front (default
+// when no provider is injected) so both the healthy and degraded paths stamp it.
 async function enrichEntry(
   entry: RegistryEntry,
   statusByPort: StatusByPort,
+  provider?: TriageProvider,
+  force?: boolean,
 ): Promise<EnrichedWorktree> {
+  const triage = provider
+    ? await provider.triageFor(entry.key.worktreeRoot, force)
+    : DEFAULT_TRIAGE
+
   if (!existsSync(entry.key.worktreeRoot)) {
-    return degraded(entry, DEGRADED.directoryDeleted, statusByPort)
+    return degraded(entry, DEGRADED.directoryDeleted, statusByPort, triage)
   }
 
   const configResult = await loadConfig(entry.key.worktreeRoot)
@@ -90,29 +105,37 @@ async function enrichEntry(
       configResult.error.code === PW_ERROR_CODES.CONFIG_MISSING
         ? DEGRADED.configMissing
         : DEGRADED.configInvalid
-    return degraded(entry, reason, statusByPort)
+    return degraded(entry, reason, statusByPort, triage)
   }
 
   try {
     const envMap = buildEnvMap(entry, configResult.value)
-    return healthy(entry, configResult.value, envMap, statusByPort)
+    return healthy({
+      config: configResult.value,
+      entry,
+      envMap,
+      statusByPort,
+      triage,
+    })
   } catch (caught: unknown) {
     if (
       caught instanceof PortweaveError &&
       caught.code === PW_ERROR_CODES.ENV_BUILD_INVALID
     ) {
-      return degraded(entry, DEGRADED.configInvalid, statusByPort)
+      return degraded(entry, DEGRADED.configInvalid, statusByPort, triage)
     }
     throw caught
   }
 }
 
-function healthy(
-  entry: RegistryEntry,
-  config: Config,
-  envMap: Record<string, string>,
-  statusByPort: StatusByPort,
-): EnrichedWorktree {
+function healthy(args: {
+  config: Config
+  entry: RegistryEntry
+  envMap: Record<string, string>
+  statusByPort: StatusByPort
+  triage: WorktreeTriage
+}): EnrichedWorktree {
+  const { config, entry, envMap, statusByPort, triage } = args
   const services: PanelService[] = config.services.map((service) => {
     const links: PanelLink[] = Object.keys(service.discoveryEnv)
       .map((key) => ({ envVar: key, url: envMap[key] }))
@@ -120,14 +143,14 @@ function healthy(
     const port = entry.ports[service.name]
     return {
       envVar: service.envVar,
-      links,
+      links: resolveServiceLinks(links, port),
       name: service.name,
       port,
       status: statusByPort.get(port) ?? 'unknown',
     }
   })
 
-  return wrap(entry, config.projectName ?? null, {
+  return wrap(entry, config.projectName ?? null, triage, {
     degraded: false,
     degradedReason: null,
     services,
@@ -138,18 +161,23 @@ function degraded(
   entry: RegistryEntry,
   reason: string,
   statusByPort: StatusByPort,
+  triage: WorktreeTriage,
 ): EnrichedWorktree {
   const services: PanelService[] = Object.entries(entry.ports)
     .map(([name, port]) => ({
       envVar: '',
-      links: [],
+      links: resolveServiceLinks([], port),
       name,
       port,
       status: statusByPort.get(port) ?? 'unknown',
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  return wrap(entry, null, { degraded: true, degradedReason: reason, services })
+  return wrap(entry, null, triage, {
+    degraded: true,
+    degradedReason: reason,
+    services,
+  })
 }
 
 type WorktreeCore = Pick<
@@ -160,6 +188,7 @@ type WorktreeCore = Pick<
 function wrap(
   entry: RegistryEntry,
   projectName: null | string,
+  triage: WorktreeTriage,
   core: WorktreeCore,
 ): EnrichedWorktree {
   return {
@@ -167,6 +196,7 @@ function wrap(
     projectName,
     worktree: {
       ...core,
+      ...stampTriage(triage, entry.key.worktreeRoot),
       lastUsedAt: entry.lastUsedAt,
       namespace: entry.key.namespace,
       worktreeRoot: entry.key.worktreeRoot,

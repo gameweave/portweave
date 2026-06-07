@@ -6,7 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { withRegistry } from '../../registry/storage.ts'
 import type { AllocationKey, RegistryEntry } from '../../registry/types.ts'
 import { buildPanelSnapshot, type EnrichDeps } from '../enrich.ts'
-import type { PanelLivenessStatus } from '../types.ts'
+import { isSafeLinkUrl } from '../links.ts'
+import type { TriageProvider, WorktreeTriage } from '../triage-cache.ts'
+import type { PanelLivenessStatus, PanelPrStatus } from '../types.ts'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -18,6 +20,29 @@ const FIXED_TIME = '2026-01-01T00:00:00.000Z'
 // deterministic and fast (no real sockets, no timeouts).
 const allNotRunning: EnrichDeps = {
   probe: () => Promise.resolve('not-running'),
+}
+
+// A stub TriageProvider returning a fixed triage for every worktree — keeps
+// tests off real gh/git/du. prStatusAvailable defaults to true here so the
+// PR-bearing fixtures resolve; callers override it to assert the flag wiring.
+// `forceCalls` records each call's force flag for the forceTriage passthrough.
+interface TrackingTriage extends TriageProvider {
+  readonly forceCalls: boolean[]
+}
+
+function stubTriage(
+  triage: WorktreeTriage,
+  prStatusAvailable = true,
+): TrackingTriage {
+  const forceCalls: boolean[] = []
+  return {
+    forceCalls,
+    prStatusAvailable,
+    triageFor: (_worktreeRoot: string, force = false) => {
+      forceCalls.push(force)
+      return Promise.resolve(triage)
+    },
+  }
 }
 
 function makeKey(overrides: Partial<AllocationKey> = {}): AllocationKey {
@@ -411,10 +436,10 @@ describe('buildPanelSnapshot — healthy links', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Test 6: No-template service → empty links
+// Test 6: No-template service → synthesized localhost link (A-1)
 // ---------------------------------------------------------------------------
 describe('buildPanelSnapshot — no-template service', () => {
-  it('produces empty links when a service declares no discoveryEnv', async () => {
+  it('synthesizes a localhost link when a service declares no discoveryEnv', async () => {
     const wt = await trackedWorktree({
       services: { api: { envVar: 'API_PORT' } },
     })
@@ -430,7 +455,9 @@ describe('buildPanelSnapshot — no-template service', () => {
     ])
 
     const snapshot = await buildPanelSnapshot(env, allNotRunning)
-    expect(snapshot.projects[0].worktrees[0].services[0].links).toEqual([])
+    expect(snapshot.projects[0].worktrees[0].services[0].links).toEqual([
+      { envVar: '', url: 'http://localhost:3100' },
+    ])
   })
 })
 
@@ -448,7 +475,15 @@ describe('buildPanelSnapshot — degraded: missing config', () => {
     const snapshot = await buildPanelSnapshot(env, allNotRunning)
     expectDegraded(snapshot, 'config missing', ['api', 'ws'])
     const worktree = snapshot.projects[0].worktrees[0]
-    expect(worktree.services.every((s) => s.links.length === 0)).toBe(true)
+    // Degraded services are now previewable: each raw port gets a synthesized
+    // http://localhost:<port> link (A-1), but the service envVar stays unknown.
+    const byName = new Map(worktree.services.map((s) => [s.name, s]))
+    expect(byName.get('api')?.links).toEqual([
+      { envVar: '', url: 'http://localhost:3100' },
+    ])
+    expect(byName.get('ws')?.links).toEqual([
+      { envVar: '', url: 'http://localhost:3101' },
+    ])
     expect(worktree.services.every((s) => s.envVar === '')).toBe(true)
   })
 })
@@ -630,8 +665,9 @@ describe('buildPanelSnapshot — read-only', () => {
 // `javascript:`/`data:` URL — a script-execution sink once rendered as an
 // <a href>. The panel is machine-wide, so it may surface links from repos the
 // viewer never authored. enrich must drop any resolved URL whose scheme is not
-// in the http/https/ws/wss allowlist; a service left with only an unsafe URL
-// ends up with links: [] (frontend then shows the non-clickable port chip).
+// in the http/https/ws/wss allowlist. A service left with only an unsafe URL
+// keeps no explicit link, so resolveServiceLinks (A-1) then synthesizes a safe
+// http://localhost:<port> in its place — the unsafe URL never survives.
 // ---------------------------------------------------------------------------
 describe('buildPanelSnapshot — unsafe-scheme link filtering', () => {
   it('keeps http/https links and drops javascript:/data: links', async () => {
@@ -687,9 +723,14 @@ describe('buildPanelSnapshot — unsafe-scheme link filtering', () => {
     expect(allUrls).not.toContain('javascript:alert(1)')
     expect(allUrls).not.toContain('javascript:alert(document.cookie)')
     expect(allUrls).not.toContain('data:text/html,<script>alert(1)</script>')
+    // Every surviving link still passes the scheme allowlist.
+    expect(allUrls.every((url) => isSafeLinkUrl(url))).toBe(true)
 
-    // A service whose only discovery URL is unsafe is left with no links.
-    expect(byName.get('evil')?.links).toEqual([])
+    // A service whose only discovery URL is unsafe drops it, then gets a
+    // synthesized safe http://localhost:<port> in its place (A-1).
+    expect(byName.get('evil')?.links).toEqual([
+      { envVar: '', url: 'http://localhost:31002' },
+    ])
   })
 })
 
@@ -727,5 +768,253 @@ describe('buildPanelSnapshot — liveness stamping', () => {
     const ws = services.find((s) => s.name === 'ws')
     expect(api?.status).toBe('live')
     expect(ws?.status).toBe('not-running')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Service links (A-1): synthesis rules beyond the explicit-http case (Test 5)
+// ---------------------------------------------------------------------------
+describe('buildPanelSnapshot — service-link synthesis', () => {
+  it('keeps a ws-only discovery URL AND appends a synthesized http link', async () => {
+    const wt = await trackedWorktree({
+      services: {
+        rt: {
+          discoveryEnv: { RT_WS_URL: 'ws://localhost:${rt}' },
+          envVar: 'RT_PORT',
+        },
+      },
+    })
+    await seed(env, [
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/ws/.git',
+          namespace: 'main',
+          worktreeRoot: wt,
+        }),
+        { rt: 31234 },
+      ),
+    ])
+
+    const snapshot = await buildPanelSnapshot(env, allNotRunning)
+    // ws link preserved (not a browser preview) alongside the synthesized http.
+    expect(snapshot.projects[0].worktrees[0].services[0].links).toEqual([
+      { envVar: 'RT_WS_URL', url: 'ws://localhost:31234' },
+      { envVar: '', url: 'http://localhost:31234' },
+    ])
+  })
+
+  it('synthesizes an http link when the only discovery URL is a non-http scheme', async () => {
+    const wt = await trackedWorktree({
+      services: {
+        db: {
+          discoveryEnv: { DATABASE_URL: 'postgres://localhost:${db}/app' },
+          envVar: 'DB_PORT',
+        },
+      },
+    })
+    await seed(env, [
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/db/.git',
+          namespace: 'main',
+          worktreeRoot: wt,
+        }),
+        { db: 35432 },
+      ),
+    ])
+
+    const snapshot = await buildPanelSnapshot(env, allNotRunning)
+    // postgres:// is dropped by isSafeLinkUrl, leaving only the synthesized one.
+    expect(snapshot.projects[0].worktrees[0].services[0].links).toEqual([
+      { envVar: '', url: 'http://localhost:35432' },
+    ])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Triage stamping (B-5): default fields with no provider, then injected stub
+// ---------------------------------------------------------------------------
+describe('buildPanelSnapshot — triage defaults (no provider)', () => {
+  it('stamps safe defaults and capability flags when no triage provider is injected', async () => {
+    const wt = await trackedWorktree({
+      services: { api: { envVar: 'API_PORT' } },
+    })
+    await seed(env, [
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/defaults/.git',
+          namespace: 'main',
+          worktreeRoot: wt,
+        }),
+        { api: 3100 },
+      ),
+    ])
+
+    const snapshot = await buildPanelSnapshot(env, allNotRunning)
+    const worktree = snapshot.projects[0].worktrees[0]
+    expect(worktree.kind).toBe('linked')
+    expect(worktree.prStatus).toBeNull()
+    expect(worktree.workingTreeClean).toBeNull()
+    expect(worktree.diskSizeBytes).toBeNull()
+    expect(worktree.safeToPrune).toBe(false)
+    // removeCommand is always computed, even with no triage provider.
+    expect(worktree.removeCommand).toContain('git worktree remove')
+    expect(worktree.removeCommand).toContain(wt)
+    // No provider → prStatus unavailable; launch follows the host platform.
+    expect(snapshot.prStatusAvailable).toBe(false)
+    expect(snapshot.launchSupported).toBe(process.platform === 'darwin')
+  })
+})
+
+describe('buildPanelSnapshot — triage stamping (injected stub)', () => {
+  const mergedPr: PanelPrStatus = {
+    number: 1,
+    state: 'merged',
+    url: 'https://github.com/acme/app/pull/1',
+  }
+
+  it('stamps a linked+merged+clean worktree as safe to prune', async () => {
+    const wt = await trackedWorktree({
+      services: { api: { envVar: 'API_PORT' } },
+    })
+    await seed(env, [
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/triage/.git',
+          namespace: 'feature-x',
+          worktreeRoot: wt,
+        }),
+        { api: 3100 },
+      ),
+    ])
+
+    const triage: WorktreeTriage = {
+      diskSizeBytes: 1024,
+      kind: 'linked',
+      prStatus: mergedPr,
+      workingTreeClean: true,
+    }
+    const snapshot = await buildPanelSnapshot(env, {
+      ...allNotRunning,
+      triage: stubTriage(triage, true),
+    })
+
+    const worktree = snapshot.projects[0].worktrees[0]
+    expect(worktree.kind).toBe('linked')
+    expect(worktree.prStatus).toEqual(mergedPr)
+    expect(worktree.workingTreeClean).toBe(true)
+    expect(worktree.diskSizeBytes).toBe(1024)
+    expect(worktree.safeToPrune).toBe(true)
+    expect(worktree.removeCommand).toContain(wt)
+    expect(snapshot.prStatusAvailable).toBe(true)
+  })
+
+  it('never marks the main checkout safe to prune, even when merged+clean', async () => {
+    const wt = await trackedWorktree({
+      services: { api: { envVar: 'API_PORT' } },
+    })
+    await seed(env, [
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/main-triage/.git',
+          namespace: 'main',
+          worktreeRoot: wt,
+        }),
+        { api: 3100 },
+      ),
+    ])
+
+    const triage: WorktreeTriage = {
+      diskSizeBytes: 2048,
+      kind: 'main',
+      prStatus: mergedPr,
+      workingTreeClean: true,
+    }
+    const snapshot = await buildPanelSnapshot(env, {
+      ...allNotRunning,
+      triage: stubTriage(triage, false),
+    })
+
+    const worktree = snapshot.projects[0].worktrees[0]
+    expect(worktree.kind).toBe('main')
+    expect(worktree.safeToPrune).toBe(false)
+    // The capability flag mirrors the stub's prStatusAvailable.
+    expect(snapshot.prStatusAvailable).toBe(false)
+  })
+
+  it('still stamps triage fields (incl. removeCommand) on a degraded worktree', async () => {
+    // Deleted-dir entry → degraded path, but triage is fetched up front and
+    // stamped regardless: removeCommand is always present.
+    const wt = await mkdtemp(join(tmpdir(), 'pw-enrich-triage-degraded-'))
+    await seedSingle('/repos/degraded-triage/.git', wt, { api: 3100 })
+    await rm(wt, { force: true, recursive: true })
+
+    const triage: WorktreeTriage = {
+      diskSizeBytes: 512,
+      kind: 'linked',
+      prStatus: null,
+      workingTreeClean: false,
+    }
+    const snapshot = await buildPanelSnapshot(env, {
+      ...allNotRunning,
+      triage: stubTriage(triage, true),
+    })
+
+    const worktree = snapshot.projects[0].worktrees[0]
+    expect(worktree.degraded).toBe(true)
+    expect(worktree.degradedReason).toBe('directory deleted')
+    expect(worktree.kind).toBe('linked')
+    expect(worktree.diskSizeBytes).toBe(512)
+    // PR-unknown (null) → never safe, even though the dir is degraded.
+    expect(worktree.safeToPrune).toBe(false)
+    expect(worktree.removeCommand).toContain('git worktree remove')
+    expect(worktree.removeCommand).toContain(wt)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// forceTriage passthrough: deps.forceTriage reaches the provider's triageFor
+// (additive to the frozen positional buildPanelSnapshot(env, deps?) contract).
+// ---------------------------------------------------------------------------
+describe('buildPanelSnapshot — forceTriage passthrough', () => {
+  const triage: WorktreeTriage = {
+    diskSizeBytes: 1024,
+    kind: 'linked',
+    prStatus: null,
+    workingTreeClean: true,
+  }
+
+  async function seedOne(gitCommonDir: string): Promise<string> {
+    const wt = await trackedWorktree({
+      services: { api: { envVar: 'API_PORT' } },
+    })
+    await seed(env, [
+      makeEntry(makeKey({ gitCommonDir, namespace: 'main', worktreeRoot: wt }), {
+        api: 3100,
+      }),
+    ])
+    return wt
+  }
+
+  it('passes deps.forceTriage through to the provider per worktree', async () => {
+    await seedOne('/repos/force/.git')
+    const provider = stubTriage(triage, true)
+
+    await buildPanelSnapshot(env, {
+      ...allNotRunning,
+      forceTriage: true,
+      triage: provider,
+    })
+
+    expect(provider.forceCalls).toEqual([true])
+  })
+
+  it('defaults the provider force flag to false when forceTriage is unset', async () => {
+    await seedOne('/repos/noforce/.git')
+    const provider = stubTriage(triage, true)
+
+    await buildPanelSnapshot(env, { ...allNotRunning, triage: provider })
+
+    expect(provider.forceCalls).toEqual([false])
   })
 })
