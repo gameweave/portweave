@@ -1,5 +1,6 @@
 
 import { fetchPrStatus, ghIsAvailable } from '../github/pr-status.ts'
+import { worktreeBranch } from '../worktree/branch.ts'
 import { detectGitWorktreeContext, normalizePath } from '../worktree/git.ts'
 import { worktreeIsClean } from '../worktree/status.ts'
 import type { PanelPrStatus, WorktreeKind } from './types.ts'
@@ -9,6 +10,7 @@ import { diskSizeBytes } from './disk-size.ts'
 export const PANEL_TRIAGE_TTL_MS = 60_000 as const
 
 export interface WorktreeTriage {
+  readonly branch: null | string
   readonly diskSizeBytes: null | number
   readonly kind: WorktreeKind
   readonly prStatus: null | PanelPrStatus
@@ -31,6 +33,7 @@ export interface TriageDeps {
   readonly fetchPrStatus?: (worktreeRoot: string) => Promise<null | PanelPrStatus>
   readonly ghIsAvailable?: () => boolean
   readonly now?: () => number
+  readonly worktreeBranch?: (worktreeRoot: string) => null | string
   readonly worktreeIsClean?: (worktreeRoot: string) => boolean | null
 }
 
@@ -66,6 +69,7 @@ const DEFAULT_DEPS: ResolvedDeps = {
   fetchPrStatus,
   ghIsAvailable,
   now: Date.now,
+  worktreeBranch,
   worktreeIsClean,
 }
 
@@ -86,6 +90,7 @@ async function computeTriage(
   ])
 
   return {
+    branch: deps.worktreeBranch(worktreeRoot),
     diskSizeBytes: diskSize,
     kind: deps.detectKind(worktreeRoot),
     prStatus,

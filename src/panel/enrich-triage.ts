@@ -6,6 +6,7 @@ import type { PanelWorktree } from './types.ts'
 // required PanelWorktree triage fields are always populated, with the most
 // conservative values (linked, no PR, clean-state unknown, size unavailable).
 export const DEFAULT_TRIAGE: WorktreeTriage = {
+  branch: null,
   diskSizeBytes: null,
   kind: 'linked',
   prStatus: null,
@@ -14,6 +15,7 @@ export const DEFAULT_TRIAGE: WorktreeTriage = {
 
 type TriageFields = Pick<
   PanelWorktree,
+  | 'branch'
   | 'diskSizeBytes'
   | 'kind'
   | 'prStatus'
@@ -30,6 +32,7 @@ export function stampTriage(
   worktreeRoot: string,
 ): TriageFields {
   return {
+    branch: triage.branch,
     diskSizeBytes: triage.diskSizeBytes,
     kind: triage.kind,
     prStatus: triage.prStatus,

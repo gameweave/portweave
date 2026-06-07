@@ -36,6 +36,7 @@ export interface PanelPrStatus {
  * unavailable) and `degradedReason` explains why.
  */
 export interface PanelWorktree {
+  readonly branch: null | string // null = detached HEAD / git unavailable / degraded
   readonly degraded: boolean
   readonly degradedReason: null | string
   readonly diskSizeBytes: null | number // null = not computed / unavailable / non-du platform

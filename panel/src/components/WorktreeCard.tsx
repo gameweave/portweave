@@ -86,6 +86,11 @@ export function WorktreeCard({
             {chevron(collapsed)}
           </span>
           <span className="worktree-namespace">{worktree.namespace}</span>
+          {worktree.branch !== null ? (
+            <span className="worktree-branch" title="git branch">
+              {worktree.branch}
+            </span>
+          ) : null}
         </button>
 
         {worktree.kind === 'main' ? (
