@@ -147,7 +147,7 @@ function expectDegraded(
 // Test 4: Grouping + sort
 // ---------------------------------------------------------------------------
 describe('buildPanelSnapshot — grouping + sort', () => {
-  it('groups by gitCommonDir, sorts projects by label, worktrees by namespace, services in config order', async () => {
+  it('groups by gitCommonDir, sorts projects by label, worktrees live-first then by recency', async () => {
     // Project "alpha": two worktrees (main + feature)
     const alphaMainWt = await trackedWorktree({
       services: { api: { envVar: 'API_PORT' }, web: { envVar: 'WEB_PORT' } },
@@ -219,6 +219,62 @@ describe('buildPanelSnapshot — grouping + sort', () => {
     expect(zeta.worktrees.map((w) => w.namespace)).toEqual([
       'feature-x',
       'main',
+    ])
+  })
+
+  it('sorts worktrees with live services first, then by lastUsedAt descending', async () => {
+    const wtLive = await trackedWorktree({
+      services: { api: { envVar: 'API_PORT' } },
+    })
+    const wtRecent = await trackedWorktree({
+      services: { api: { envVar: 'API_PORT' } },
+    })
+    const wtOld = await trackedWorktree({
+      services: { api: { envVar: 'API_PORT' } },
+    })
+
+    await seed(env, [
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/sort/.git',
+          namespace: 'old',
+          worktreeRoot: wtOld,
+        }),
+        { api: 3100 },
+        '2026-01-01T00:00:00.000Z',
+      ),
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/sort/.git',
+          namespace: 'recent',
+          worktreeRoot: wtRecent,
+        }),
+        { api: 3101 },
+        '2026-06-01T00:00:00.000Z',
+      ),
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/sort/.git',
+          namespace: 'live',
+          worktreeRoot: wtLive,
+        }),
+        { api: 3102 },
+        '2026-01-01T00:00:00.000Z',
+      ),
+    ])
+
+    const statusByPort = new Map<number, PanelLivenessStatus>([
+      [3102, 'live'],
+    ])
+    const snapshot = await buildPanelSnapshot(env, {
+      probe: (port) => Promise.resolve(statusByPort.get(port) ?? 'not-running'),
+    })
+
+    expect(snapshot.projects).toHaveLength(1)
+    expect(snapshot.projects[0].worktrees.map((w) => w.namespace)).toEqual([
+      'live',
+      'recent',
+      'old',
     ])
   })
 })

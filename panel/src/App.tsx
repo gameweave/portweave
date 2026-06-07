@@ -7,6 +7,8 @@ import { EmptyState } from './components/EmptyState.tsx'
 import { ProjectGroup } from './components/ProjectGroup.tsx'
 import { useCollapseState } from './hooks/useCollapseState.ts'
 
+const POLL_INTERVAL_MS = 5000
+
 function formatGeneratedAt(iso: string): string {
   const date = new Date(iso)
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleTimeString()
@@ -18,23 +20,51 @@ export function App() {
   const [error, setError] = useState<null | string>(null)
   const collapse = useCollapseState()
 
-  const refresh = useCallback(async (options: { refresh?: boolean } = {}) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const next = await fetchSnapshot({ refresh: options.refresh })
-      setSnapshot(next)
-    } catch (caught: unknown) {
-      setError(
-        caught instanceof Error ? caught.message : 'Failed to load allocations',
-      )
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const refresh = useCallback(
+    async (options: { background?: boolean; refresh?: boolean } = {}) => {
+      if (!options.background) {
+        setLoading(true)
+      }
+      setError(null)
+      try {
+        const next = await fetchSnapshot({ refresh: options.refresh })
+        setSnapshot(next)
+      } catch (caught: unknown) {
+        setError(
+          caught instanceof Error ? caught.message : 'Failed to load allocations',
+        )
+      } finally {
+        if (!options.background) {
+          setLoading(false)
+        }
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     void refresh()
+  }, [refresh])
+
+  useEffect(() => {
+    const poll = (): void => {
+      if (document.visibilityState === 'visible') {
+        void refresh({ background: true })
+      }
+    }
+
+    const id = setInterval(poll, POLL_INTERVAL_MS)
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') {
+        void refresh({ background: true })
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisibility)
+    }
   }, [refresh])
 
   // After a successful prune/open the registry / on-disk state has changed, so

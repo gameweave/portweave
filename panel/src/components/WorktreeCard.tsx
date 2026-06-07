@@ -4,7 +4,7 @@ import type { CollapseState } from '../hooks/useCollapseState.ts'
 import type { PanelWorktree } from '../types.ts'
 
 import { open, prune } from '../api.ts'
-import { formatBytes } from '../format.ts'
+import { formatBytes, formatRelativeAgo } from '../format.ts'
 import { CopyButton } from './CopyButton.tsx'
 import { PrBadge } from './PrBadge.tsx'
 import { ServiceRow } from './ServiceRow.tsx'
@@ -39,6 +39,8 @@ export function WorktreeCard({
 }) {
   const collapsed = collapse.isCollapsed(worktree.worktreeRoot)
   const dirty = worktree.workingTreeClean === false
+  const isLive = worktree.services.some((service) => service.status === 'live')
+  const primaryLabel = worktree.branch ?? worktree.namespace
 
   const [confirming, setConfirming] = useState(false)
   const [pruning, setPruning] = useState(false)
@@ -71,7 +73,7 @@ export function WorktreeCard({
   }, [gitCommonDir, onAction, worktree.namespace, worktree.worktreeRoot])
 
   return (
-    <div className="worktree-card">
+    <div className={`worktree-card${isLive ? ' worktree-live' : ''}`}>
       <div className="worktree-header">
         <button
           type="button"
@@ -80,17 +82,12 @@ export function WorktreeCard({
           onClick={() => {
             collapse.toggle(worktree.worktreeRoot)
           }}
-          title={collapsed ? 'Expand worktree' : 'Collapse worktree'}
+          title={`namespace: ${worktree.namespace}`}
         >
           <span className="collapse-chevron" aria-hidden="true">
             {chevron(collapsed)}
           </span>
-          <span className="worktree-namespace">{worktree.namespace}</span>
-          {worktree.branch !== null ? (
-            <span className="worktree-branch" title="git branch">
-              {worktree.branch}
-            </span>
-          ) : null}
+          <span className="worktree-label">{primaryLabel}</span>
         </button>
 
         {worktree.kind === 'main' ? (
@@ -117,6 +114,10 @@ export function WorktreeCard({
             ) : null}
           </span>
         ) : null}
+
+        <span className="last-used" title={worktree.lastUsedAt}>
+          used {formatRelativeAgo(worktree.lastUsedAt)}
+        </span>
 
         <span className="disk-size" title="on-disk size">
           {formatBytes(worktree.diskSizeBytes)}
