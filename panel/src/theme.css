@@ -157,7 +157,7 @@ a:hover {
 }
 
 .collapse-toggle:hover .project-label,
-.collapse-toggle:hover .worktree-namespace {
+.collapse-toggle:hover .worktree-label {
   color: var(--accent);
 }
 
@@ -183,6 +183,11 @@ a:hover {
   overflow: hidden;
 }
 
+.worktree-live {
+  border-color: rgba(63, 185, 80, 0.45);
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+
 .worktree-header {
   align-items: center;
   border-bottom: 1px solid var(--border);
@@ -192,17 +197,15 @@ a:hover {
   padding: 10px 14px;
 }
 
-.worktree-namespace {
+.worktree-label {
   font-family: var(--mono);
   font-size: 13px;
   font-weight: 600;
 }
 
-.worktree-branch {
+.last-used {
   color: var(--fg-muted);
-  font-family: var(--mono);
-  font-size: 12px;
-  font-weight: 400;
+  font-size: 11px;
 }
 
 .worktree-root {

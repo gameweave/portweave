@@ -9,6 +9,7 @@ import { resolveLabel } from './labels.ts'
 import { isSafeLinkUrl } from './links.ts'
 import { probePortAlive } from './liveness.ts'
 import { resolveServiceLinks } from './service-links.ts'
+import { compareProjects, compareWorktrees } from './sort.ts'
 import type { TriageProvider, WorktreeTriage } from './triage-cache.ts'
 import type {
   PanelLink,
@@ -220,7 +221,7 @@ function groupIntoProjects(
 
 function buildProject(bucket: EnrichedWorktree[]): PanelProject {
   const sorted = [...bucket].sort((a, b) =>
-    a.worktree.namespace.localeCompare(b.worktree.namespace),
+    compareWorktrees(a.worktree, b.worktree),
   )
   const gitCommonDir = sorted[0].gitCommonDir
   return {
@@ -228,22 +229,4 @@ function buildProject(bucket: EnrichedWorktree[]): PanelProject {
     label: resolveLabel(sorted, gitCommonDir),
     worktrees: sorted.map((item) => item.worktree),
   }
-}
-
-// Projects sort by label; ties break on gitCommonDir string with null last.
-function compareProjects(a: PanelProject, b: PanelProject): number {
-  const byLabel = a.label.localeCompare(b.label)
-  if (byLabel !== 0) {
-    return byLabel
-  }
-  if (a.gitCommonDir === b.gitCommonDir) {
-    return 0
-  }
-  if (a.gitCommonDir === null) {
-    return 1
-  }
-  if (b.gitCommonDir === null) {
-    return -1
-  }
-  return a.gitCommonDir.localeCompare(b.gitCommonDir)
 }

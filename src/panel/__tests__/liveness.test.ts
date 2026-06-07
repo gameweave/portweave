@@ -2,11 +2,13 @@ import { createServer, type Server } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { LIVENESS_TIMEOUT_MS, probePortAlive } from '../liveness.ts'
 
-function listenOnFreePort(): Promise<{ port: number; server: Server }> {
+function listenOnFreePort(
+  host: '127.0.0.1' | '::1' = '127.0.0.1',
+): Promise<{ port: number; server: Server }> {
   return new Promise((resolve, reject) => {
     const server = createServer()
     server.once('error', reject)
-    server.listen(0, '127.0.0.1', () => {
+    server.listen(0, host, () => {
       const address = server.address()
       if (address === null || typeof address === 'string') {
         reject(new Error('expected an AddressInfo from listen(0)'))
@@ -45,6 +47,13 @@ describe('probePortAlive', () => {
 
   it('resolves "live" when a listener is bound on the port', async () => {
     const { port, server } = await listenOnFreePort()
+    openServers.push(server)
+
+    await expect(probePortAlive(port)).resolves.toBe('live')
+  })
+
+  it('resolves "live" when a listener is bound on ::1 only', async () => {
+    const { port, server } = await listenOnFreePort('::1')
     openServers.push(server)
 
     await expect(probePortAlive(port)).resolves.toBe('live')
