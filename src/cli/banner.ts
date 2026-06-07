@@ -91,3 +91,22 @@ export function formatErrorLine(message: string, code?: string): string {
     ? `${PREFIX} error: ${message} (${code})`
     : `${PREFIX} error: ${message}`
 }
+
+/**
+ * Promise-wrapped stream write so CLI commands can `await` each line and
+ * propagate backpressure/errors. Shared by the `show` and `panel` commands.
+ */
+export function writeOut(
+  stream: NodeJS.WritableStream,
+  text: string,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    stream.write(text, (writeErr) => {
+      if (writeErr) {
+        reject(writeErr)
+      } else {
+        resolve()
+      }
+    })
+  })
+}

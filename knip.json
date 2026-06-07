@@ -10,5 +10,6 @@
     "src/runtime/error-passthrough.ts",
     "src/runtime/exports-smoke.ts"
   ],
+  "ignoreBinaries": ["gh"],
   "ignoreDependencies": ["constants-check", "jscpd", "prettier"]
 }

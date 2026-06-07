@@ -14,7 +14,8 @@
     "**/cdk.out/**",
     ".worktrees/**",
     ".claude/**",
-    "examples/**"
+    "examples/**",
+    "panel/**"
   ],
   "reporters": ["console", "json"],
   "output": "reports/jscpd",

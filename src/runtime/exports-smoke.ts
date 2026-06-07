@@ -37,7 +37,11 @@ export async function makeConsumerProject(
       version: '0.0.0',
     }),
   )
-  await execFileAsync('npm', ['install', '--prefer-offline', '--no-audit'], {
+  // No `--prefer-offline`: prefer a clean, integrity-verified install over
+  // reusing a possibly-partial cached package — a suspected source of the
+  // intermittent macOS "missing export" failure. The consumer import is also
+  // retried once (see exports-smoke.test.ts).
+  await execFileAsync('npm', ['install', '--no-audit'], {
     cwd: consumerDir,
     env: { ...process.env, NODE_ENV: 'test' },
   })

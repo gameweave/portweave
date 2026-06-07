@@ -8,7 +8,7 @@ import { ok, type Result } from '../result.ts'
 import { withRegistry } from '../registry/storage.ts'
 import { loadConfig } from '../config/index.ts'
 import { resolveAllocationKey } from '../worktree/key.ts'
-import { formatAllocationBanner } from './banner.ts'
+import { formatAllocationBanner, writeOut } from './banner.ts'
 
 export interface ShowOptions {
   cwd?: string
@@ -38,18 +38,6 @@ function keysEqual(a: AllocationKey, b: AllocationKey): boolean {
     a.namespace === b.namespace &&
     a.worktreeRoot === b.worktreeRoot
   )
-}
-
-function writeOut(stream: NodeJS.WritableStream, text: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    stream.write(text, (writeErr) => {
-      if (writeErr) {
-        reject(writeErr)
-      } else {
-        resolve()
-      }
-    })
-  })
 }
 
 function buildJsonPayload(

@@ -93,6 +93,22 @@ function assertOkWithApi(parsed: unknown): void {
   expect(typeof value.api).toBe('number')
 }
 
+// The macOS CI runner intermittently fails the first ESM import of the
+// freshly-installed package with a spurious "missing export" (a different
+// symbol each run — a partial install/read artifact, not a real export gap).
+// Retry once: a re-read resolves it, while a genuine break fails twice.
+async function importConsumer(script: string, cwd: string): Promise<string> {
+  try {
+    const first = await execFileAsync(process.execPath, [script], { cwd })
+    return first.stdout
+  } catch {
+    // pw-allow-swallow: absorb the transient first-import flake; a real failure
+    // throws again on the retry below and fails the test.
+    const retry = await execFileAsync(process.execPath, [script], { cwd })
+    return retry.stdout
+  }
+}
+
 describe.skipIf(SKIP_SMOKE)(
   'exports smoke test (set RUN_SMOKE_TESTS=1 to run)',
   () => {
@@ -106,11 +122,7 @@ describe.skipIf(SKIP_SMOKE)(
           `process.stdout.write(JSON.stringify(result))`,
         ].join('\n'),
       )
-      const { stdout } = await execFileAsync(
-        process.execPath,
-        [consumerScript],
-        { cwd: consumerDir },
-      )
+      const stdout = await importConsumer(consumerScript, consumerDir)
       const parsed: unknown = JSON.parse(stdout)
       expect(parsed).toMatchObject({ ok: true })
       assertOkWithApi(parsed)

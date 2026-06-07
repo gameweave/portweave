@@ -1,0 +1,9 @@
+# Build / tool output (previously skipped via .gitignore)
+node_modules/
+dist/
+build/
+coverage/
+reports/
+
+# Isolated frontend — owns its own formatting (see .ai/specs/management-panel/03-build-and-tooling.md)
+panel/

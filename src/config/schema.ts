@@ -44,6 +44,7 @@ const servicesMapSchema = z
 
 const configFileSchema = z.strictObject({
   $schema: z.string().optional(),
+  projectName: z.string().trim().min(1).max(100).optional(),
   services: servicesMapSchema,
 })
 
@@ -60,6 +61,7 @@ export interface ServiceSpec {
 
 export interface Config {
   groups: Record<string, string[]>
+  projectName?: string
   services: ServiceSpec[]
   source: 'anonymous' | 'file'
   sourcePath?: string
@@ -207,6 +209,7 @@ function normalize(raw: RawConfigFile, ctx: NormalizationContext): Config {
 
   return {
     groups,
+    ...(raw.projectName !== undefined ? { projectName: raw.projectName } : {}),
     services,
     source: ctx.source,
     ...(ctx.sourcePath !== undefined ? { sourcePath: ctx.sourcePath } : {}),
