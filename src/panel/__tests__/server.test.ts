@@ -1,4 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -639,6 +641,37 @@ describe('POST /api/prune', () => {
       expect(after.map((e) => e.key.worktreeRoot)).toEqual([dirA])
     } finally {
       await rm(dirA, { force: true, recursive: true })
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// startPanelServer — fall-forward range exhausted
+// ---------------------------------------------------------------------------
+describe('startPanelServer — no free port', () => {
+  it('returns CLI_PANEL_PORT_IN_USE when every candidate port is taken', async () => {
+    const blocker = createServer()
+    await new Promise<void>((resolve, reject) => {
+      blocker.once('error', reject)
+      blocker.listen(0, '127.0.0.1', () => {
+        resolve()
+      })
+    })
+    const { port } = blocker.address() as AddressInfo
+    try {
+      // portAttempts: 1 → only the occupied port is tried, so the range is
+      // immediately exhausted and the fall-forward gives up.
+      const result = await startPanelServer({ env, port, portAttempts: 1 })
+      expect(result.ok).toBe(false)
+      if (!result.ok) {
+        expect(result.error.code).toBe(PW_ERROR_CODES.CLI_PANEL_PORT_IN_USE)
+      }
+    } finally {
+      await new Promise<void>((resolve) => {
+        blocker.close(() => {
+          resolve()
+        })
+      })
     }
   })
 })

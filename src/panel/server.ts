@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { err, ok, type Result } from '../result.ts'
 import { buildPanelSnapshot } from './enrich.ts'
+import { listenOnFreePort } from './listen.ts'
 import {
   dispatchPost,
   HEADER_CONTENT_TYPE,
@@ -34,6 +35,7 @@ import { createTriageProvider, type TriageProvider } from './triage-cache.ts'
 export interface StartPanelServerOptions {
   env: NodeJS.ProcessEnv
   port: number
+  portAttempts?: number // test seam: cap the fall-forward range
   security?: PanelSecurity // injected in tests for a known CSRF/gate
   signal?: AbortSignal
   triage?: TriageProvider // injected in tests to avoid gh/git/du
@@ -168,43 +170,40 @@ function createHandler(deps: HandlerDeps) {
   }
 }
 
-export function startPanelServer(
+export async function startPanelServer(
   options: StartPanelServerOptions,
 ): Promise<Result<RunningPanelServer, PortweaveError>> {
-  // The request handler needs security (CSRF/Host allowlist), which depends on
-  // the bound port — known only after 'listening' — so attach it there.
+  // Bind with fall-forward: if `options.port` is taken, the next free port is
+  // used. The request handler needs the bound port (CSRF/Host allowlist), so it
+  // is attached only after a successful listen.
   const server = createServer()
-
-  return new Promise<Result<RunningPanelServer, PortweaveError>>((resolve) => {
-    server.once('error', (error: Error) => {
-      const code = (error as NodeJS.ErrnoException).code
-      const message =
-        code === 'EADDRINUSE'
-          ? `panel port ${String(options.port)} is already in use — pass --port <n> to choose another`
-          : `failed to start panel server on port ${String(options.port)}: ${error.message}`
-      resolve(
-        err(new PortweaveError(PW_ERROR_CODES.CLI_PANEL_PORT_IN_USE, message)),
-      )
-    })
-
-    server.once('listening', () => {
-      const address = server.address()
-      const boundPort =
-        address !== null && typeof address !== 'string'
-          ? address.port
-          : options.port
-      // One provider + security instance per server, held for the process
-      // lifetime so the triage cache persists across Refreshes.
-      const triage = options.triage ?? createTriageProvider()
-      const security = options.security ?? createPanelSecurity(boundPort)
-      const deps = { env: options.env, security, triage }
-      server.on('request', createHandler(deps))
-      const closed = wireShutdown(server, options.signal)
-      resolve(ok({ closed, port: boundPort }))
-    })
-
-    server.listen(options.port, LOOPBACK_HOST)
-  })
+  try {
+    const { boundPort } = await listenOnFreePort(
+      server,
+      options.port,
+      LOOPBACK_HOST,
+      options.portAttempts,
+    )
+    // Keep a loopback dev server alive on a stray post-bind socket error rather
+    // than letting an unhandled 'error' crash the process.
+    server.on('error', () => undefined)
+    // One provider + security instance per server, held for the process
+    // lifetime so the triage cache persists across Refreshes.
+    const triage = options.triage ?? createTriageProvider()
+    const security = options.security ?? createPanelSecurity(boundPort)
+    const deps = { env: options.env, security, triage }
+    server.on('request', createHandler(deps))
+    const closed = wireShutdown(server, options.signal)
+    return ok({ closed, port: boundPort })
+  } catch (caught: unknown) {
+    const code = (caught as NodeJS.ErrnoException).code
+    const detail = caught instanceof Error ? caught.message : String(caught)
+    const message =
+      code === 'ALL_PORTS_IN_USE'
+        ? `panel could not find a free port near ${String(options.port)} — pass --port <n> to choose another`
+        : `failed to start panel server on port ${String(options.port)}: ${detail}`
+    return err(new PortweaveError(PW_ERROR_CODES.CLI_PANEL_PORT_IN_USE, message))
+  }
 }
 
 // Wire SIGINT/SIGTERM + an optional AbortSignal to server.close(); resolve

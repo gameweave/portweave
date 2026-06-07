@@ -4,7 +4,7 @@ import { ok, type Result } from '../result.ts'
 import { startPanelServer } from '../panel/server.ts'
 import { formatErrorLine, writeOut } from './banner.ts'
 
-const DEFAULT_PANEL_PORT = 7733 as const
+const DEFAULT_PANEL_PORT = 6767 as const
 
 export interface PanelOptions {
   cwd?: string
@@ -79,10 +79,11 @@ export async function runPanel(
 export function registerPanelCommand(program: Command): void {
   program
     .command('panel')
-    .description(
-      'Start a read-only web dashboard of all machine-wide allocations',
+    .description('Start a web dashboard of all machine-wide allocations')
+    .option(
+      '--port <n>',
+      'port to bind the panel server (default 6767, or the next free port if taken)',
     )
-    .option('--port <n>', 'port to bind the panel server (default 7733)')
     .action(async (opts: { port?: string }) => {
       const port = opts.port !== undefined ? Number(opts.port) : undefined
       const result = await runPanel({ port })

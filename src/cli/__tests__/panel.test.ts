@@ -134,16 +134,32 @@ describe('runPanel — clean shutdown via signal', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Test 20: Port-in-use → exit 1
+// Test 20: Port-in-use → falls forward to the next free port
 // ---------------------------------------------------------------------------
-describe('runPanel — port in use', () => {
-  it('exits 1, stderr names the port, carries CLI_PANEL_PORT_IN_USE', async () => {
+describe('runPanel — requested port in use', () => {
+  it('binds the next free port and announces it instead of failing', async () => {
     const { port, server } = await bindThrowaway()
+    const ac = new AbortController()
+    const out = makeWritable()
+    const serr = makeWritable()
     try {
-      const { exitCode, stderr } = await runPanelCapturing(port)
-      expect(exitCode).toBe(1)
-      expect(stderr).toContain(String(port))
-      expect(stderr).toContain(PW_ERROR_CODES.CLI_PANEL_PORT_IN_USE)
+      const pending = runPanel({
+        env,
+        port,
+        signal: ac.signal,
+        stderr: serr.stream,
+        stdout: out.stream,
+      })
+      const boundPort = await waitForAnnouncedPort(serr.value)
+      // Auto-incremented past the occupied port rather than erroring out.
+      expect(boundPort).toBeGreaterThan(port)
+
+      ac.abort()
+      const result = await pending
+      expect(result.ok).toBe(true)
+      if (result.ok) {
+        expect(result.value.exitCode).toBe(0)
+      }
     } finally {
       await closeServer(server)
     }
