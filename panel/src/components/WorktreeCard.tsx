@@ -39,7 +39,6 @@ export function WorktreeCard({
 }) {
   const collapsed = collapse.isCollapsed(worktree.worktreeRoot)
   const dirty = worktree.workingTreeClean === false
-  const isLive = worktree.services.some((service) => service.status === 'live')
   const primaryLabel = worktree.branch ?? worktree.namespace
 
   const [confirming, setConfirming] = useState(false)
@@ -73,7 +72,7 @@ export function WorktreeCard({
   }, [gitCommonDir, onAction, worktree.namespace, worktree.worktreeRoot])
 
   return (
-    <div className={`worktree-card${isLive ? ' worktree-live' : ''}`}>
+    <div className="worktree-card">
       <div className="worktree-header">
         <button
           type="button"
