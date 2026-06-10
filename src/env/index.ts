@@ -7,4 +7,4 @@ export {
   type PwMetadataField,
 } from './metadata.ts'
 export { type ResolvedEnv, resolveEnv } from './resolve.ts'
-export { evaluateTemplate } from './templates.ts'
+export { evaluateTemplate, referencedServiceNames } from './templates.ts'

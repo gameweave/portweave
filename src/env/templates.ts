@@ -43,3 +43,29 @@ export function evaluateTemplate(
     return String(ports[name])
   })
 }
+
+// The distinct declared services a discoveryEnv template references, in
+// appearance order — the basis for panel link attribution (a URL belongs to
+// the service it points at, wherever it is declared). Unlike evaluateTemplate
+// this never throws: unknown placeholders are simply not service refs, and the
+// reserved `${namespace}` token keeps its reservation — never a service ref,
+// even for a service literally named "namespace" (decision-log #37).
+export function referencedServiceNames(
+  template: string,
+  serviceNames: ReadonlySet<string>,
+): readonly string[] {
+  const found: string[] = []
+  for (const match of template.matchAll(PLACEHOLDER_PATTERN)) {
+    const name = match[1]
+    if (
+      name === RESERVED_NAMESPACE_TOKEN ||
+      name.startsWith(PW_METADATA_PREFIX) ||
+      !serviceNames.has(name) ||
+      found.includes(name)
+    ) {
+      continue
+    }
+    found.push(name)
+  }
+  return found
+}

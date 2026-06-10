@@ -6,13 +6,11 @@ import { readRegistryEntries } from '../registry/storage.ts'
 import type { RegistryEntry } from '../registry/types.ts'
 import { DEFAULT_TRIAGE, stampTriage } from './enrich-triage.ts'
 import { resolveLabel } from './labels.ts'
-import { isSafeLinkUrl } from './links.ts'
 import { probePortAlive } from './liveness.ts'
-import { resolveServiceLinks } from './service-links.ts'
+import { attributeLinks, resolveServiceLinks } from './service-links.ts'
 import { compareProjects, compareWorktrees } from './sort.ts'
 import type { TriageProvider, WorktreeTriage } from './triage-cache.ts'
 import type {
-  PanelLink,
   PanelLivenessStatus,
   PanelProject,
   PanelService,
@@ -137,14 +135,12 @@ function healthy(args: {
   triage: WorktreeTriage
 }): EnrichedWorktree {
   const { config, entry, envMap, statusByPort, triage } = args
+  const linksByService = attributeLinks(config, envMap)
   const services: PanelService[] = config.services.map((service) => {
-    const links: PanelLink[] = Object.keys(service.discoveryEnv)
-      .map((key) => ({ envVar: key, url: envMap[key] }))
-      .filter((link) => isSafeLinkUrl(link.url))
     const port = entry.ports[service.name]
     return {
       envVar: service.envVar,
-      links: resolveServiceLinks(links, port),
+      links: resolveServiceLinks(linksByService.get(service.name) ?? [], port),
       name: service.name,
       port,
       status: statusByPort.get(port) ?? 'unknown',
