@@ -896,7 +896,7 @@ describe('buildPanelSnapshot — service-link synthesis', () => {
 // ---------------------------------------------------------------------------
 describe('buildPanelSnapshot — link attribution by template reference', () => {
   it('routes consumer-side URLs to the referenced service; consumers keep their own ports', async () => {
-    // MiniSwap-shaped config: mobile/admin declare URLs pointing at api, and
+    // Consumer-side config: mobile/admin declare URLs pointing at api, and
     // api's ALLOWED_ORIGINS references both consumers (composite — never a link).
     const wt = await trackedWorktree({
       services: {
