@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PortweaveError, PW_ERROR_CODES } from '../../errors.ts'
-import { evaluateTemplate } from '../templates.ts'
+import { evaluateTemplate, referencedServiceNames } from '../templates.ts'
 
 const NO_META: Record<string, string> = {}
 const META = {
@@ -154,5 +154,52 @@ describe('evaluateTemplate — reserved ${namespace} token', () => {
     expect((thrownError as PortweaveError).code).toBe(
       PW_ERROR_CODES.ENV_BUILD_INVALID,
     )
+  })
+})
+
+describe('referencedServiceNames', () => {
+  // Includes a service literally named "namespace" to prove the reservation.
+  const SERVICES: ReadonlySet<string> = new Set(['api', 'namespace', 'ws'])
+
+  it('returns the single service a template references', () => {
+    expect(referencedServiceNames('http://localhost:${api}', SERVICES)).toEqual(
+      ['api'],
+    )
+  })
+
+  it('dedupes a service referenced multiple times', () => {
+    expect(referencedServiceNames('${api}:${api}', SERVICES)).toEqual(['api'])
+  })
+
+  it('returns multiple distinct services in appearance order', () => {
+    expect(
+      referencedServiceNames('http://localhost:${ws}/from/${api}', SERVICES),
+    ).toEqual(['ws', 'api'])
+  })
+
+  it('returns empty for a literal template with no placeholders', () => {
+    expect(
+      referencedServiceNames('https://docs.example.com', SERVICES),
+    ).toEqual([])
+  })
+
+  it('ignores ${pw:*} metadata placeholders', () => {
+    expect(referencedServiceNames('gw-${pw:namespace}', SERVICES)).toEqual([])
+  })
+
+  it('ignores the reserved ${namespace} token even when a service is named "namespace"', () => {
+    expect(referencedServiceNames('local-${namespace}', SERVICES)).toEqual([])
+  })
+
+  it('ignores placeholders matching no declared service (never throws)', () => {
+    expect(
+      referencedServiceNames('http://localhost:${missing}', SERVICES),
+    ).toEqual([])
+  })
+
+  it('counts only service refs in a mixed template', () => {
+    expect(
+      referencedServiceNames('http://localhost:${api}/${namespace}', SERVICES),
+    ).toEqual(['api'])
   })
 })

@@ -888,6 +888,131 @@ describe('buildPanelSnapshot — service-link synthesis', () => {
 })
 
 // ---------------------------------------------------------------------------
+// Link attribution: a discoveryEnv URL is a preview link for the service its
+// TEMPLATE references, not the service block that declares it. Consumer-side
+// configs (entries nested on the service that consumes the URL) previously
+// made every row display the dependency's URL — e.g. three services all
+// showing the api's port.
+// ---------------------------------------------------------------------------
+describe('buildPanelSnapshot — link attribution by template reference', () => {
+  it('routes consumer-side URLs to the referenced service; consumers keep their own ports', async () => {
+    // MiniSwap-shaped config: mobile/admin declare URLs pointing at api, and
+    // api's ALLOWED_ORIGINS references both consumers (composite — never a link).
+    const wt = await trackedWorktree({
+      services: {
+        admin: {
+          discoveryEnv: { VITE_API_URL: 'http://localhost:${api}' },
+          envVar: 'ADMIN_PORT',
+        },
+        api: {
+          discoveryEnv: {
+            ALLOWED_ORIGINS:
+              'http://localhost:${mobile},http://localhost:${admin}',
+          },
+          envVar: 'PORT',
+        },
+        mobile: {
+          discoveryEnv: { EXPO_PUBLIC_API_URL: 'http://localhost:${api}' },
+          envVar: 'EXPO_PORT',
+        },
+      },
+    })
+    await seed(env, [
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/attr/.git',
+          namespace: 'main',
+          worktreeRoot: wt,
+        }),
+        { admin: 30004, api: 30002, mobile: 30003 },
+      ),
+    ])
+
+    const snapshot = await buildPanelSnapshot(env, allNotRunning)
+    const byName = new Map(
+      snapshot.projects[0].worktrees[0].services.map((s) => [s.name, s]),
+    )
+
+    // api claims the consumer URLs; identical URLs dedupe to the first label
+    // (admin declares first in config order).
+    expect(byName.get('api')?.links).toEqual([
+      { envVar: 'VITE_API_URL', url: 'http://localhost:30002' },
+    ])
+    // The regression: these rows used to display http://localhost:30002.
+    expect(byName.get('mobile')?.links).toEqual([
+      { envVar: '', url: 'http://localhost:30003' },
+    ])
+    expect(byName.get('admin')?.links).toEqual([
+      { envVar: '', url: 'http://localhost:30004' },
+    ])
+  })
+
+  it('treats a template referencing two services as a composite value, not a link', async () => {
+    const wt = await trackedWorktree({
+      services: {
+        api: { envVar: 'API_PORT' },
+        proxy: {
+          // Parses as a URL, but references two services — belongs to no row.
+          discoveryEnv: { PROXY_MAP: 'http://localhost:${api}/to/${ws}' },
+          envVar: 'PROXY_PORT',
+        },
+        ws: { envVar: 'WS_PORT' },
+      },
+    })
+    await seed(env, [
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/composite/.git',
+          namespace: 'main',
+          worktreeRoot: wt,
+        }),
+        { api: 3100, proxy: 3102, ws: 3101 },
+      ),
+    ])
+
+    const snapshot = await buildPanelSnapshot(env, allNotRunning)
+    // Nobody claims the composite URL; every row gets its own synthesized link.
+    expect(
+      snapshot.projects[0].worktrees[0].services.map((s) => s.links),
+    ).toEqual([
+      [{ envVar: '', url: 'http://localhost:3100' }],
+      [{ envVar: '', url: 'http://localhost:3102' }],
+      [{ envVar: '', url: 'http://localhost:3101' }],
+    ])
+  })
+
+  it('keeps a no-service-token URL (proxy domain) on the declaring service', async () => {
+    const wt = await trackedWorktree({
+      services: {
+        app: {
+          discoveryEnv: {
+            PREVIEW_URL: 'https://app-${namespace}.dev.example.com',
+          },
+          envVar: 'APP_PORT',
+        },
+      },
+    })
+    await seed(env, [
+      makeEntry(
+        makeKey({
+          gitCommonDir: '/repos/proxy-domain/.git',
+          namespace: 'main',
+          worktreeRoot: wt,
+        }),
+        { app: 3100 },
+      ),
+    ])
+
+    const snapshot = await buildPanelSnapshot(env, allNotRunning)
+    // No service reference → stays with its declaring block, and the explicit
+    // https URL still wins over synthesis.
+    expect(snapshot.projects[0].worktrees[0].services[0].links).toEqual([
+      { envVar: 'PREVIEW_URL', url: 'https://app-main.dev.example.com' },
+    ])
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Triage stamping (B-5): default fields with no provider, then injected stub
 // ---------------------------------------------------------------------------
 describe('buildPanelSnapshot — triage defaults (no provider)', () => {
