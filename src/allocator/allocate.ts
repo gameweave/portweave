@@ -70,9 +70,27 @@ function buildPortsMap(
 function tryReuseExisting(
   handle: WithRegistryHandle,
   key: AllocationKey,
+  orderedServices: ServiceSpec[],
 ): AllocationResult | null {
   const existing = handle.entries.find((e) => keysEqual(e.key, key))
   if (existing === undefined) {
+    return null
+  }
+  // Reconcile against the current config before reusing. If the config now
+  // declares a service this block predates — the common case being a service
+  // added to portweave.config.json after the block was first allocated — the
+  // cached block is too small. Returning it as-is would make buildEnvMap throw
+  // ENV_BUILD_INVALID (PW0501, "config/allocation drift") on the port the new
+  // service has no slot for, breaking every command in that worktree until a
+  // manual `portweave prune`. Fall through to a fresh, larger allocation
+  // instead. This fires only on additive growth: an unchanged service set — or
+  // a config that *dropped* a service (the block is a superset; buildEnvMap
+  // only reads config services) — still hits the unconditional reuse below, so
+  // the port-stability guarantee documented there is preserved for the hot path.
+  const coversConfig = orderedServices.every((service) =>
+    Object.hasOwn(existing.ports, service.name),
+  )
+  if (!coversConfig) {
     return null
   }
   // Reuse is unconditional: an existing entry for this key is returned as-is,
@@ -153,7 +171,7 @@ export async function allocate(
   // the inner carries allocator-level errors.
   const outer = await withRegistry(
     async (handle): Promise<Result<AllocationResult, PortweaveError>> => {
-      const reused = tryReuseExisting(handle, key)
+      const reused = tryReuseExisting(handle, key, orderedServices)
       if (reused !== null) {
         return ok(reused)
       }
