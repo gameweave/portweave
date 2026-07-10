@@ -117,6 +117,83 @@ describe('allocate — stickiness (reuse path)', () => {
   })
 })
 
+describe('allocate — config growth reconcile (drift heal)', () => {
+  // Regression: adding a service to the config after a block was first
+  // allocated must NOT return the stale (too-small) block — that block has no
+  // port for the new service, so buildEnvMap would throw PW0501 and every
+  // command in the worktree would fail until a manual prune. allocate() must
+  // reallocate a fresh, larger block that covers the new service instead.
+  it('reallocates a fresh block when the config gains a service the cached block lacks', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const key = makeAllocationKey(wt)
+
+    const before = makeAllocatorConfig([
+      { envVar: 'API_PORT', name: 'api' },
+      { envVar: 'VITE_PORT', name: 'vite' },
+    ])
+    const first = await allocate(key, before, env())
+    expect(first.ok).toBe(true)
+    if (!first.ok) {
+      return
+    }
+    expect(first.value.reused).toBe(false)
+
+    // A new service ("minio") is added to the config for the same worktree.
+    const after = makeAllocatorConfig([
+      { envVar: 'API_PORT', name: 'api' },
+      { envVar: 'VITE_PORT', name: 'vite' },
+      { envVar: 'MINIO_PORT', name: 'minio' },
+    ])
+    const second = await allocate(key, after, env())
+    expect(second.ok).toBe(true)
+    if (!second.ok) {
+      return
+    }
+
+    // Not a stale reuse — a fresh block sized for all three services.
+    expect(second.value.reused).toBe(false)
+    const ports = second.value.allocation.ports
+    expect(Object.hasOwn(ports, 'minio')).toBe(true)
+    expect(Object.keys(ports)).toHaveLength(3)
+    const sorted = Object.values(ports).sort((a, b) => a - b)
+    for (let i = 1; i < sorted.length; i++) {
+      expect(sorted[i]).toBe(sorted[i - 1] + 1)
+    }
+  })
+
+  it('reuses the same block (stable ports) when the config drops a service', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const key = makeAllocationKey(wt)
+
+    const before = makeAllocatorConfig([
+      { envVar: 'API_PORT', name: 'api' },
+      { envVar: 'VITE_PORT', name: 'vite' },
+      { envVar: 'WS_PORT', name: 'ws' },
+    ])
+    const first = await allocate(key, before, env())
+    expect(first.ok).toBe(true)
+    if (!first.ok) {
+      return
+    }
+
+    // The cached block is now a superset of the config's services. buildEnvMap
+    // only reads config services, so the extra port is harmless — reuse must
+    // stay sticky rather than needlessly re-rolling the ports.
+    const after = makeAllocatorConfig([
+      { envVar: 'API_PORT', name: 'api' },
+      { envVar: 'VITE_PORT', name: 'vite' },
+    ])
+    const second = await allocate(key, after, env())
+    expect(second.ok).toBe(true)
+    if (!second.ok) {
+      return
+    }
+
+    expect(second.value.reused).toBe(true)
+    expect(second.value.allocation.ports).toEqual(first.value.allocation.ports)
+  })
+})
+
 describe('allocate — idempotent reuse while allocated ports are bound (regression)', () => {
   // Regression: a second allocate() for the same key must return the EXISTING
   // block even when its ports are currently bound — a bound port for an
