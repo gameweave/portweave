@@ -11,8 +11,12 @@ export interface ServiceInput {
   name: string
 }
 
-export function makeAllocatorConfig(services: ServiceInput[]): Config {
+export function makeAllocatorConfig(
+  services: ServiceInput[],
+  overrides: Partial<Config> = {},
+): Config {
   return {
+    envAuthority: 'dotenv',
     groups: {},
     services: services.map((s) => ({
       discoveryEnv: {},
@@ -21,6 +25,7 @@ export function makeAllocatorConfig(services: ServiceInput[]): Config {
       name: s.name,
     })),
     source: 'anonymous',
+    ...overrides,
   }
 }
 

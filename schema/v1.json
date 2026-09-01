@@ -17,6 +17,45 @@
       "maxLength": 100,
       "description": "Optional human-friendly project label shown in the portweave panel dashboard. Falls back to a name derived from the git repository when unset."
     },
+    "envAuthority": {
+      "enum": ["dotenv", "portweave"],
+      "default": "dotenv",
+      "description": "Who wins when the project .env names a key Portweave also computes. \"dotenv\" (default): an explicit .env entry pins the value. \"portweave\": the computed value wins and .env is not read at all — for projects whose .env is shared or symlinked across worktrees and so cannot carry a per-worktree port. The parent process environment beats both either way."
+    },
+    "pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "basePort", "stride", "slots"],
+      "description": "Allocate from a fixed set of slots instead of scanning a machine-wide pool. Slot i spans [basePort + i*stride, basePort + i*stride + serviceCount - 1], which makes the full set of possible ports enumerable (see `portweave slots`) — necessary when an external service must pre-register every candidate URL, as OAuth redirect allow-lists cannot wildcard a port. Omit for the default first-fit behaviour.",
+      "properties": {
+        "mode": {
+          "const": "slots",
+          "description": "Only \"slots\" is supported. Omitting the pool block entirely selects first-fit allocation over PORTWEAVE_POOL_RANGE."
+        },
+        "basePort": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "First port of slot 0."
+        },
+        "stride": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Distance between consecutive slot base ports. Must be >= the number of services so adjacent slots do not overlap."
+        },
+        "slots": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "How many slots exist. Allocation fails once every slot is taken rather than drifting outside the set."
+        },
+        "primarySlot": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Slot pinned to the primary (non-linked) worktree. It always receives this slot; if those ports are occupied the allocation fails (PW0402) rather than moving, so anything pre-registered against them keeps working."
+        }
+      }
+    },
     "services": {
       "type": "object",
       "description": "Map of kebab-case service name to its port/env configuration. At least one entry is required.",
@@ -47,7 +86,8 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 65535,
-          "description": "Advisory preferred port. v0 allocates from the machine-wide pool regardless."
+          "deprecated": true,
+          "description": "DEPRECATED and ignored; removed in 0.9. Never read by the allocator. Use the top-level \"pool\" block with \"mode\": \"slots\" for a deterministic, enumerable port set."
         },
         "discoveryEnv": {
           "type": "object",

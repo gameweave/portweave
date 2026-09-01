@@ -6,10 +6,14 @@ import { loadConfig } from '../config/loader.ts'
 import { type ResolvedEnv, resolveEnv } from '../env/index.ts'
 import { PORTWEAVE_NAMESPACE_VAR } from '../env/metadata.ts'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
-import { resolveRegistryPath } from '../registry/paths.ts'
 import { err, type Result } from '../result.ts'
 import { type AllocationKey, resolveAllocationKey } from '../worktree/key.ts'
-import { formatAllocationBanner, formatErrorLine } from './banner.ts'
+import {
+  buildVerboseLines,
+  formatAllocationBanner,
+  formatErrorLine,
+} from './banner.ts'
+import { skipAsNonPrimary } from './primary-only.ts'
 import { resolveExitCode, spawnChild } from './spawn.ts'
 
 export interface RunIo {
@@ -22,6 +26,7 @@ export interface RunIo {
 export interface RunOptions {
   configPath?: string
   count?: number
+  primaryOnly: boolean
   verbose: boolean
 }
 
@@ -116,21 +121,6 @@ async function resolveConfig(
   return result.value
 }
 
-function buildVerboseLines(
-  config: Config,
-  key: AllocationKey,
-  env: NodeJS.ProcessEnv,
-): string[] {
-  const configLabel =
-    config.sourcePath ??
-    (config.source === 'anonymous' ? '<anonymous-mode>' : '<unknown>')
-  return [
-    `[portweave] config: ${configLabel}`,
-    `[portweave] registry: ${resolveRegistryPath(env).registryFile}`,
-    `[portweave] key: ${JSON.stringify({ gitCommonDir: key.gitCommonDir, namespace: key.namespace, worktreeRoot: key.worktreeRoot })}`,
-  ]
-}
-
 interface SpawnBannerContext {
   allocResult: AllocationResult
   childArgs: readonly string[]
@@ -195,6 +185,10 @@ export async function runCommand(
   }
   const key = keyResult.value
 
+  if (options.primaryOnly && skipAsNonPrimary(key, io)) {
+    return 0
+  }
+
   const config = await resolveConfig(io.cwd(), options, io)
   if (config === null) {
     return 1
@@ -237,12 +231,14 @@ export function registerRunCommand(program: Command): void {
       const opts = program.opts<{
         config?: string
         count?: string
+        primaryOnly?: boolean
         verbose?: boolean
       }>()
       const count = opts.count !== undefined ? Number(opts.count) : undefined
       const exitCode = await runCommand(childArgs, {
         configPath: opts.config,
         count,
+        primaryOnly: opts.primaryOnly === true,
         verbose: opts.verbose === true,
       })
       process.exitCode = exitCode

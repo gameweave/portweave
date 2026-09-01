@@ -24,6 +24,7 @@ function makeAllocation(overrides?: Partial<Allocation>): Allocation {
 
 function makeConfig(overrides?: Partial<Config>): Config {
   return {
+    envAuthority: 'dotenv',
     groups: {},
     services: [{ discoveryEnv: {}, envVar: 'API_PORT', name: 'api' }],
     source: 'file',

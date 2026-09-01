@@ -45,22 +45,50 @@ get conflict-free, sticky ports per git worktree.
    connection strings, add a `discoveryEnv` map whose templates use
    `${serviceName}` to interpolate the allocated port. Give services that
    must receive adjacent ports the same `group`.
-4. In `package.json`, wrap each dev/test command that needs ports with
+4. Check whether the project's `.env` is SHARED across worktrees (symlinked
+   into each one, or committed). If it is, add `"envAuthority": "portweave"`
+   at the top level — otherwise `.env` overrides the allocation and nothing
+   changes. An explicit `VAR=… <command>` in the shell still wins either way.
+5. Check whether any port must be registered somewhere OUTSIDE this machine —
+   an OAuth redirect URI (Auth0, Google, GitHub), a webhook URL. If so, add a
+   `pool` block so the candidate ports are a finite, listable set:
+       "pool": { "mode": "slots", "basePort": 3000, "stride": 10, "slots": 10 }
+   Pick `basePort` so slot 0 equals the ports the project already uses, and
+   register every slot once with `portweave slots --template '<url>'`.
+6. In `package.json`, wrap each dev/test command that needs ports with
    `portweave run -- <command>` (e.g. `"dev": "portweave run -- vite"`).
-5. For config files evaluated at startup (`vite.config`, `next.config`,
+   In a monorepo, wrap EACH workspace's own script, not just the root one:
+   task runners such as Turborepo filter the child environment by default
+   (`envMode: "strict"`), which silently strips the injected vars. Verify
+   with `turbo run dev --dry=json`.
+   A dev process that must run in only one worktree at a time — a worker
+   registering against one shared cloud project, say — goes behind
+   `portweave --primary-only run -- <command>` instead.
+7. For config files evaluated at startup (`vite.config`, `next.config`,
    `vitest.config`), do not read `process.env` — import the allocation from
    the async runtime API instead:
        import { ports } from 'portweave/runtime'
        const p = await ports()
        if (!p.ok) throw new Error(`${p.error.message} (${p.error.code})`)
        // then use p.value.<serviceName>
-6. Replace any hardcoded port literals with reads of the injected env vars.
-7. Add `.portweave/` to `.gitignore`.
-8. Verify: run the wrapped dev script and confirm the `[portweave]` banner
-   lists every service and the app binds the allocated ports.
+   Two exceptions. Skip this for a config that also runs in CI or a cloud
+   build, where there is no allocation — keep reading `process.env` there and
+   guard the runtime call behind a local-dev-only branch. And a CommonJS
+   config (no top-level `await`) cannot use the async API at all: read
+   `.portweave/current.env` with `dotenv` instead.
+8. Replace any hardcoded port literals with reads of the injected env vars.
+9. Add `.portweave/` to `.gitignore`.
+10. Verify: run the wrapped dev script and confirm the `[portweave]` banner
+    lists every service and the app binds the allocated ports. Then run it in
+    a second worktree at the same time and confirm both come up.
 
 CLI note: global flags go BEFORE the subcommand —
 `portweave --count 3 run -- npm run dev`, never after `run`.
+
+Shell note: `portweave run` spawns without a shell, so `-p $WEB_PORT` in the
+argv is expanded by the OUTER shell before injection and arrives empty. Use
+`portweave run -- sh -c 'exec <command> -p $WEB_PORT'` when a port has to be
+passed as a flag (`exec` so signals still reach the process).
 ```
 
 ## Install
@@ -181,7 +209,15 @@ Field reference:
 
 A copyable starting point lives at [`examples/web-app.config.json`](examples/web-app.config.json).
 
-One optional **top-level** field, `projectName`, is not a service setting: it is a 1–100 character display label the [`portweave panel`](#preview-dashboard-portweave-panel) dashboard uses to title this project's group (falling back to the git repository's directory name when unset). It has no effect on port allocation.
+Three optional **top-level** fields are not service settings:
+
+| Field          | Default    | What it does                                                                                                                                                                                               |
+| -------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `projectName`  | git dir    | A 1–100 character display label the [panel](#preview-dashboard-portweave-panel) uses to title this project's group. No effect on allocation.                                                               |
+| `envAuthority` | `"dotenv"` | Who wins when the project `.env` names a key Portweave also computes. See [Choosing who wins: `envAuthority`](#choosing-who-wins-envauthority).                                                            |
+| `pool`         | first-fit  | Allocate from a fixed set of slots rather than scanning a machine-wide range, so the full set of possible ports is finite and listable. See [Fixed slots](#fixed-slots-when-ports-must-be-pre-registered). |
+
+`services.<name>.preferred` is **deprecated and ignored**; it was never read by the allocator. Portweave warns when it sees one and will remove the field in 0.9. Use `pool` instead — it is the real answer to "I need to know which ports this can land on".
 
 Notes that affect how you write templates:
 
@@ -197,6 +233,63 @@ Every `portweave run` injects `PORTWEAVE_NAMESPACE` into the child process (and 
 This is the primitive for keeping worktrees from colliding in shared, single-instance daemons. The canonical case is PM2: name each app `<service>-${process.env.PORTWEAVE_NAMESPACE}` (e.g. in `ecosystem.config.cjs`) so two worktrees running the same stack register distinct process names in the one PM2 daemon. Portweave allocates the ports and hands you the namespace; it never manages processes itself.
 
 `PORTWEAVE_NAMESPACE` is authoritative: it always reports the namespace Portweave used, so a value set in your project `.env` or parent environment does not change what the child observes (an explicit value is still honored as an _override of which namespace gets derived_ — set it before invoking `portweave run`).
+
+### Fixed slots: when ports must be pre-registered
+
+By default Portweave picks the first free block in a wide pool, so a worktree's ports are stable but not predictable _before_ it first runs. That is a problem whenever something outside your machine has to know the port in advance — an OAuth provider's redirect-URI allow-list is the common case, and none of them will wildcard a localhost port.
+
+Slot mode makes the candidate set finite and enumerable. Slot `i` spans `[basePort + i*stride, basePort + i*stride + serviceCount - 1]`:
+
+```json
+{
+  "pool": {
+    "mode": "slots",
+    "basePort": 3000,
+    "stride": 10,
+    "slots": 10,
+    "primarySlot": 0
+  },
+  "services": {
+    "web": { "envVar": "WEB_PORT" },
+    "api": { "envVar": "API_PORT" }
+  }
+}
+```
+
+With two services that gives slot 0 = 3000/3001, slot 1 = 3010/3011, … slot 9 = 3090/3091 — ten possibilities you can register once and forget.
+
+| Field         | Required     | Rules                                                                                                 |
+| ------------- | ------------ | ----------------------------------------------------------------------------------------------------- |
+| `mode`        | **required** | Only `"slots"`. Omitting the whole `pool` block keeps the default first-fit behaviour.                |
+| `basePort`    | **required** | First port of slot 0. Must be ≥ 1024 (below that is privileged on POSIX).                             |
+| `stride`      | **required** | Distance between slot base ports. Must be ≥ the number of services, so adjacent slots cannot overlap. |
+| `slots`       | **required** | How many slots exist. Allocation fails rather than drifting outside the set.                          |
+| `primarySlot` | optional (0) | The slot pinned to the primary worktree.                                                              |
+
+Two behaviours are deliberate and worth knowing:
+
+- **The primary worktree always gets `primarySlot`.** If those ports are occupied, allocation fails with `PW0402` instead of moving — silently drifting off the pinned slot would break whatever was pre-registered against it.
+- **A busy port retires its whole slot, not just itself.** First-fit would slide one port forward; slot mode jumps to the next slot base, so bases stay on the declared stride no matter how many probes fail.
+
+`PORTWEAVE_POOL_RANGE` is ignored in slot mode (Portweave says so on stderr) — the geometry comes from the config, which is the point.
+
+Use [`portweave slots`](#portweave-slots) to print the set, and `--template` to render it straight into whatever allow-list needs it.
+
+### Choosing who wins: `envAuthority`
+
+By default, an explicit entry in your project `.env` beats Portweave's computed value for the same key. That is the right default: pinning a port in `.env` should work.
+
+It is the wrong default for one specific and increasingly common shape — a **`.env` that is shared across worktrees**, typically symlinked into each one from a main checkout. There, the file physically cannot carry a per-worktree port, so letting it win makes the whole allocation inert. Setting `"envAuthority": "portweave"` inverts the middle layer:
+
+| Layer                    | `"dotenv"` (default) | `"portweave"` |
+| ------------------------ | -------------------- | ------------- |
+| Parent process env       | wins                 | wins          |
+| Project `.env`           | wins over computed   | ignored       |
+| Portweave computed value | fallback             | wins          |
+
+An ad-hoc override still works either way, because the parent environment is above both: `API_PORT=4000 portweave run -- npm run dev`.
+
+Under `"portweave"`, Portweave does not read `.env` at all. That has a useful side effect: a line the [minimal dotenv parser](#errors-and-recovery) cannot handle — a pasted multi-line PEM, say — can no longer fail your dev command with `PW0502`.
 
 ### Isolating non-port resources per worktree
 
@@ -241,6 +334,7 @@ Global options are parsed **before** the subcommand. The following all live on t
 | ----------------- | ------------------------------------------------------------------------------------------------------- |
 | `--config <path>` | Use a specific config file instead of discovering `portweave.config.json`.                              |
 | `--count <n>`     | Anonymous mode: allocate `n` ports with no config file (see below). Mutually exclusive with `--config`. |
+| `--primary-only`  | With `run`: do nothing and exit `0` unless this is the primary worktree (see below).                    |
 | `--verbose`       | Print extra diagnostic lines (config path, registry path, allocation key).                              |
 | `-V`, `--version` | Print the version.                                                                                      |
 | `-h`, `--help`    | Print help.                                                                                             |
@@ -261,6 +355,16 @@ portweave --count 3 run -- npm run dev        # anonymous mode, no config file
 - The allocation banner is printed to **stderr**, so it never pollutes a pipeline reading the child's stdout.
 - Signals (`SIGINT`, `SIGTERM`) are forwarded to the child.
 - **Exit code:** the child's exit code on success; `1` for a Portweave error (invalid flags, missing config, locked registry, etc.); `127` if the child command could not be spawned.
+
+**`--primary-only`** turns the command into a no-op outside the primary worktree: Portweave writes one line to stderr and exits `0` without spawning anything.
+
+```bash
+portweave --primary-only run -- npm run worker
+```
+
+This is for a dev process that is a singleton for reasons unrelated to ports — the shape that motivated it is a worker registering itself against a single shared cloud project, where a second copy does not collide on a port, it quietly splits the work in half. Exiting `0` rather than failing matters when the command is one task in a parallel runner such as `turbo dev`: the other tasks still succeed.
+
+To run it in a linked worktree anyway, set `PORTWEAVE_PRIMARY=1`. (Deliberately not `PORTWEAVE_NAMESPACE=main`, which would also move the worktree's port block.)
 
 **Anonymous mode** (`--count n`) needs no config file. It synthesizes `n` services named `port-1`…`port-n`, exposed as `PORT_1`…`PORT_n`. `n` must be an integer in `[1, 100]`. Useful for throwaway scripts or agents that just need "some free ports":
 
@@ -309,6 +413,32 @@ $ portweave show --json
 ```
 
 If the worktree has no allocation yet, `show` exits `1` and tells you to run `portweave run` first.
+
+### `portweave slots`
+
+Prints every port block the project can allocate. Slot mode only (`pool.mode: "slots"`); it is pure computation — no registry lock, no allocation, no `.portweave` write.
+
+```bash
+$ portweave slots
+slot 0 (primary)  web=3000 api=3001
+slot 1  web=3010 api=3011
+slot 2  web=3020 api=3021
+```
+
+`--template` renders a `${service}` template once per slot and prints nothing else, so the output drops straight into whatever wants the list. Repeat the flag for more than one template.
+
+```bash
+$ portweave slots --template 'http://localhost:${web}/auth/callback'
+http://localhost:3000/auth/callback
+http://localhost:3010/auth/callback
+http://localhost:3020/auth/callback
+
+# register every candidate with an OAuth provider in one shot
+$ auth0 apps update "$CLIENT_ID" \
+    --callbacks "$(portweave slots --template 'http://localhost:${web}/auth/callback' | paste -sd,)"
+```
+
+Templates use the same evaluator as `discoveryEnv`, so `${pw:<field>}` and the reserved `${namespace}` token work here too. `--json` emits the pool geometry plus per-slot `ports` and `rendered` maps.
 
 ### `portweave prune`
 
@@ -524,13 +654,14 @@ Vite picks the next free port when its preferred one is taken, which means a ser
 
 These variables tune allocation behavior. Set them in your shell, a `.env` consumed before invoking Portweave, or a CI job's `env:` block.
 
-| Variable                    | Effect                                                                                                                                      | Default                                                 |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `PORTWEAVE_OFFSET`          | Forces a specific allocation offset. Must be a non-negative integer. Useful for pinning a deterministic block in CI or on a shared machine. | derived from the worktree path                          |
-| `PORTWEAVE_NAMESPACE`       | Overrides the namespace string (the value exposed as `PORTWEAVE_NAMESPACE` and used in the banner). The value is slugified.                 | `main` for the main worktree; `<slug>-<hash>` otherwise |
-| `PORTWEAVE_POOL_RANGE`      | Overrides the candidate port pool. Format `<start>-<end>`; both integers, `start >= 1024`, `end > start`.                                   | `30000-60000`                                           |
-| `PORTWEAVE_LOCK_TIMEOUT_MS` | How long to wait when acquiring the registry lock before giving up with `PW0301`.                                                           | ~2500 ms (100 retries × 25 ms)                          |
-| `XDG_CONFIG_HOME`           | Base directory for the registry. Portweave uses `$XDG_CONFIG_HOME/portweave/`.                                                              | `~/.config`                                             |
+| Variable                    | Effect                                                                                                                                                                            | Default                                                 |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `PORTWEAVE_OFFSET`          | Forces a specific allocation offset. Must be a non-negative integer. Useful for pinning a deterministic block in CI or on a shared machine.                                       | derived from the worktree path                          |
+| `PORTWEAVE_NAMESPACE`       | Overrides the namespace string (the value exposed as `PORTWEAVE_NAMESPACE` and used in the banner). The value is slugified.                                                       | `main` for the main worktree; `<slug>-<hash>` otherwise |
+| `PORTWEAVE_POOL_RANGE`      | Overrides the candidate port pool. Format `<start>-<end>`; both integers, `start >= 1024`, `end > start`. Ignored in [slot mode](#fixed-slots-when-ports-must-be-pre-registered). | `30000-60000`                                           |
+| `PORTWEAVE_PRIMARY`         | Set to `1` to make `--primary-only` run the command in a linked worktree too.                                                                                                     | unset                                                   |
+| `PORTWEAVE_LOCK_TIMEOUT_MS` | How long to wait when acquiring the registry lock before giving up with `PW0301`.                                                                                                 | ~2500 ms (100 retries × 25 ms)                          |
+| `XDG_CONFIG_HOME`           | Base directory for the registry. Portweave uses `$XDG_CONFIG_HOME/portweave/`.                                                                                                    | `~/.config`                                             |
 
 Malformed values for `PORTWEAVE_POOL_RANGE` and `PORTWEAVE_LOCK_TIMEOUT_MS` fall back to the default; the pool-range case also prints a one-line warning to stderr so a typo doesn't silently change allocations. A non-integer `PORTWEAVE_OFFSET` is a hard error (`PW0202`).
 
@@ -595,7 +726,8 @@ Errors carry a stable `PW####` code, printed as `[portweave] error: <message> (<
 | `PW0202` | `PORTWEAVE_OFFSET` is not a non-negative integer.                             | Correct or unset the variable.                                                                                                                                               |
 | `PW0301` | Could not acquire the registry lock in time.                                  | Usually transient — Portweave retries. If it persists, a process crashed holding the lock; remove `~/.config/portweave/registry.lock`, or raise `PORTWEAVE_LOCK_TIMEOUT_MS`. |
 | `PW0302` | The registry JSON is corrupt.                                                 | Inspect `~/.config/portweave/registry.json`; fix or delete it (it will be recreated).                                                                                        |
-| `PW0401` | No free port block large enough in the pool.                                  | Widen the pool with `PORTWEAVE_POOL_RANGE`, or remove stale entries from the registry.                                                                                       |
+| `PW0401` | No free port block large enough in the pool.                                  | Widen the pool with `PORTWEAVE_POOL_RANGE` (first-fit) or raise `pool.slots` (slot mode), or remove stale entries from the registry.                                         |
+| `PW0402` | The primary worktree's pinned slot is occupied (slot mode only).              | Free the port the message names, or `portweave prune --path <dir>` if a stale worktree entry holds it. Portweave will not drift the primary off its slot.                    |
 | `PW0502` | A `.env` line could not be parsed.                                            | The message names the line number; fix or quote the value.                                                                                                                   |
 | `PW0503` | A `.env` override for a service envVar is not a valid port in [1, 65535].     | Fix the value in `.env` (only emitted by the runtime `ports()` API; `env()` returns the literal string).                                                                     |
 | `PW0601` | Invalid CLI flags (e.g. `--config` with `--count`, or no command after `--`). | Correct the invocation.                                                                                                                                                      |

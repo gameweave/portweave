@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { PW_ERROR_CODES } from '../../errors.ts'
 import { loadConfig } from '../loader.ts'
 
+// The fixture below deliberately still carries the deprecated `preferred`
+// field; its warning is asserted in schema.test.ts, not re-tested here.
+const SILENT = { write: () => true }
+
 const VALID_CONFIG_JSON = `{
   "$schema": "https://raw.githubusercontent.com/gameweave/portweave/main/schema/v1.json",
   "services": {
@@ -89,7 +93,7 @@ describe('loadConfig — happy path', () => {
 
   it('loads the DESIGN.md Appendix A sample successfully', async () => {
     await writeFile(join(state.tempDir, DEFAULT_CONFIG_NAME), VALID_CONFIG_JSON)
-    const result = await loadConfig(state.tempDir)
+    const result = await loadConfig(state.tempDir, { stderr: SILENT })
     expect(result.ok).toBe(true)
     if (!result.ok) {
       return
@@ -133,7 +137,7 @@ describe('loadConfig — happy path', () => {
       },
     })
     await writeFile(join(state.tempDir, DEFAULT_CONFIG_NAME), payload)
-    const result = await loadConfig(state.tempDir)
+    const result = await loadConfig(state.tempDir, { stderr: SILENT })
     expect(result.ok).toBe(true)
     if (!result.ok) {
       return
@@ -149,7 +153,7 @@ describe('loadConfig — failure paths', () => {
   installTempLifecycle(state)
 
   it('returns CONFIG_MISSING when no portweave.config.json is present', async () => {
-    const result = await loadConfig(state.tempDir)
+    const result = await loadConfig(state.tempDir, { stderr: SILENT })
     expect(result.ok).toBe(false)
     if (result.ok) {
       return
@@ -162,7 +166,7 @@ describe('loadConfig — failure paths', () => {
 
   it('returns CONFIG_INVALID for malformed JSON', async () => {
     await writeFile(join(state.tempDir, DEFAULT_CONFIG_NAME), '{ "services": ')
-    const result = await loadConfig(state.tempDir)
+    const result = await loadConfig(state.tempDir, { stderr: SILENT })
     expect(result.ok).toBe(false)
     if (result.ok) {
       return
@@ -176,7 +180,7 @@ describe('loadConfig — failure paths', () => {
       services: { api: { envVar: 'API_PORT' } },
     })
     await writeFile(join(state.tempDir, DEFAULT_CONFIG_NAME), payload)
-    const result = await loadConfig(state.tempDir)
+    const result = await loadConfig(state.tempDir, { stderr: SILENT })
     expect(result.ok).toBe(false)
     if (result.ok) {
       return
@@ -193,7 +197,7 @@ describe('loadConfig — failure paths', () => {
     await writeFile(target, VALID_CONFIG_JSON)
     await chmod(target, 0o000)
     state.dirtyFiles.push(target)
-    const result = await loadConfig(state.tempDir)
+    const result = await loadConfig(state.tempDir, { stderr: SILENT })
     expect(result.ok).toBe(false)
     if (result.ok) {
       return
@@ -209,7 +213,10 @@ describe('loadConfig — configPath resolution', () => {
   it('honors an explicit relative configPath under cwd', async () => {
     const custom = 'custom.json'
     await writeFile(join(state.tempDir, custom), VALID_CONFIG_JSON)
-    const result = await loadConfig(state.tempDir, { configPath: custom })
+    const result = await loadConfig(state.tempDir, {
+      configPath: custom,
+      stderr: SILENT,
+    })
     expect(result.ok).toBe(true)
     if (!result.ok) {
       return
@@ -221,6 +228,7 @@ describe('loadConfig — configPath resolution', () => {
     await writeFile(join(state.tempDir, 'config.json'), VALID_CONFIG_JSON)
     const result = await loadConfig(state.tempDir, {
       configPath: './config.json',
+      stderr: SILENT,
     })
     expect(result.ok).toBe(true)
   })
@@ -228,7 +236,10 @@ describe('loadConfig — configPath resolution', () => {
   it('honors an absolute configPath regardless of cwd', async () => {
     const abs = join(state.tempDir, 'abs.json')
     await writeFile(abs, VALID_CONFIG_JSON)
-    const result = await loadConfig('/var/empty', { configPath: abs })
+    const result = await loadConfig('/var/empty', {
+      configPath: abs,
+      stderr: SILENT,
+    })
     expect(result.ok).toBe(true)
     if (!result.ok) {
       return

@@ -1,10 +1,11 @@
 export { buildEnvMap } from './build.ts'
 export {
   buildMetadata,
+  metadataFromKey,
   PORTWEAVE_NAMESPACE_VAR,
   PW_METADATA_FIELDS,
   PW_METADATA_PREFIX,
   type PwMetadataField,
 } from './metadata.ts'
-export { type ResolvedEnv, resolveEnv } from './resolve.ts'
+export { computeEnvMap, type ResolvedEnv, resolveEnv } from './resolve.ts'
 export { evaluateTemplate, referencedServiceNames } from './templates.ts'

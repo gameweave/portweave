@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import type { PoolSpec } from '../../config/index.ts'
 import {
   findFreeBlock,
+  findFreeSlot,
   POOL_END_DEFAULT,
   POOL_START_DEFAULT,
   resolvePoolRange,
+  slotBasePort,
 } from '../pool.ts'
 
 const DEFAULT_RANGE = { end: POOL_END_DEFAULT, start: POOL_START_DEFAULT }
@@ -201,5 +204,70 @@ describe('resolvePoolRange', () => {
     }
     resolvePoolRange({ PORTWEAVE_POOL_RANGE: '40000-50000' }, stderr)
     expect(warnings).toHaveLength(0)
+  })
+})
+
+const SLOT_POOL: PoolSpec = {
+  basePort: 3000,
+  mode: 'slots',
+  primarySlot: 0,
+  slots: 10,
+  stride: 10,
+}
+
+describe('slotBasePort', () => {
+  it('places slot 0 at basePort', () => {
+    expect(slotBasePort(SLOT_POOL, 0)).toBe(3000)
+  })
+
+  it('advances by stride per slot', () => {
+    expect(slotBasePort(SLOT_POOL, 1)).toBe(3010)
+    expect(slotBasePort(SLOT_POOL, 9)).toBe(3090)
+  })
+})
+
+describe('findFreeSlot', () => {
+  it('pins the primary worktree to primarySlot even when later slots are free', () => {
+    expect(findFreeSlot([], 2, SLOT_POOL, true)).toBe(3000)
+  })
+
+  it('returns null for the primary worktree when its pinned slot is taken', () => {
+    // Deliberately does NOT fall through to slot 1 — drifting off the pinned
+    // slot is what would break anything pre-registered against those ports.
+    expect(findFreeSlot([3001], 2, SLOT_POOL, true)).toBeNull()
+  })
+
+  it('gives a linked worktree the lowest slot above the primary', () => {
+    expect(findFreeSlot([3000, 3001], 2, SLOT_POOL, false)).toBe(3010)
+  })
+
+  it('never hands a linked worktree the primary slot, even when it is free', () => {
+    expect(findFreeSlot([], 2, SLOT_POOL, false)).toBe(3010)
+  })
+
+  it('skips a whole slot when any one of its ports is occupied', () => {
+    // 3011 occupied retires slot 1 entirely; the next base stays on the stride
+    // rather than becoming 3012 the way first-fit would.
+    expect(findFreeSlot([3011], 2, SLOT_POOL, false)).toBe(3020)
+  })
+
+  it('honours a non-zero primarySlot in both directions', () => {
+    const pool: PoolSpec = { ...SLOT_POOL, primarySlot: 3 }
+    expect(findFreeSlot([], 2, pool, true)).toBe(3030)
+    expect(findFreeSlot([3000, 3001], 2, pool, false)).toBe(3010)
+  })
+
+  it('returns null once every non-primary slot is occupied', () => {
+    const occupied: number[] = []
+    for (let slot = 1; slot < SLOT_POOL.slots; slot += 1) {
+      occupied.push(slotBasePort(SLOT_POOL, slot))
+    }
+    expect(findFreeSlot(occupied, 2, SLOT_POOL, false)).toBeNull()
+  })
+
+  it('accounts for the full service width when testing a slot', () => {
+    const wide: PoolSpec = { ...SLOT_POOL, stride: 4 }
+    // slot 1 spans 3004..3007; an occupant at 3007 must retire it
+    expect(findFreeSlot([3007], 4, wide, false)).toBe(3008)
   })
 })

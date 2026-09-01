@@ -352,3 +352,58 @@ describe('registerShowCommand', () => {
     expect(calls).toContain('show')
   })
 })
+
+// ---------------------------------------------------------------------------
+// show --json must agree with what `run` injects
+// ---------------------------------------------------------------------------
+describe('runShow — parity with the injected environment', () => {
+  async function showJson(): Promise<{
+    env: Record<string, string>
+    ports: Record<string, number>
+  }> {
+    const { out, result } = await runCapture((streams) =>
+      runShow(makeOptions({ ...streams, json: true })),
+    )
+    expectExitCode(result, 0)
+    return JSON.parse(out.value()) as {
+      env: Record<string, string>
+      ports: Record<string, number>
+    }
+  }
+
+  it('reflects a .env override under the default dotenv authority', async () => {
+    // Previously `show` computed its env map straight from the allocation and
+    // skipped the .env layer, so it could report a port the child was never
+    // given.
+    await writeFile(join(worktreeDir, '.env'), 'API_PORT=4000\n')
+    await seedEntry(env, makeEntry(worktreeKey))
+
+    const parsed = await showJson()
+    expect(parsed.env.API_PORT).toBe('4000')
+    // The raw allocation is still reported unchanged — only `env` is layered.
+    expect(parsed.ports.api).toBe(3104)
+  })
+
+  it('ignores the same .env override under envAuthority: portweave', async () => {
+    await writeFile(
+      join(worktreeDir, 'portweave.config.json'),
+      JSON.stringify({
+        envAuthority: 'portweave',
+        services: { api: { envVar: 'API_PORT' }, ws: { envVar: 'WS_PORT' } },
+      }),
+    )
+    await writeFile(join(worktreeDir, '.env'), 'API_PORT=4000\n')
+    await seedEntry(env, makeEntry(worktreeKey))
+
+    expect((await showJson()).env.API_PORT).toBe('3104')
+  })
+
+  it('still writes nothing to .portweave when a .env is present', async () => {
+    await writeFile(join(worktreeDir, '.env'), 'API_PORT=4000\n')
+    await seedEntry(env, makeEntry(worktreeKey))
+    await showJson()
+    expect(existsSync(join(worktreeDir, '.portweave', 'current.env'))).toBe(
+      false,
+    )
+  })
+})

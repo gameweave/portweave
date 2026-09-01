@@ -3,7 +3,7 @@ import type { Config } from '../config/index.ts'
 import type { PortweaveError } from '../errors.ts'
 import type { RegistryEntry } from '../registry/types.ts'
 import type { AllocationKey } from '../worktree/key.ts'
-import { buildEnvMap } from '../env/index.ts'
+import { computeEnvMap } from '../env/index.ts'
 import { ok, type Result } from '../result.ts'
 import { withRegistry } from '../registry/storage.ts'
 import { loadConfig } from '../config/index.ts'
@@ -103,15 +103,15 @@ async function emitOutput(args: EmitOutputArgs): Promise<0 | 1> {
     await writeOut(stdout, banner)
     return 0
   }
-  let envMap: Record<string, string>
-  try {
-    envMap = buildEnvMap(entry, config)
-  } catch (caught: unknown) {
-    const msg = caught instanceof Error ? caught.message : String(caught)
-    await writeOut(stderr, `[portweave] ${msg}\n`)
+  // Same computation `run` injects, `.env` layer and envAuthority included, so
+  // `show --json` cannot disagree with the child's actual environment. Still
+  // side-effect-free: computeEnvMap never writes .portweave/current.env.
+  const envMap = await computeEnvMap(entry, config, entry.key.worktreeRoot)
+  if (!envMap.ok) {
+    await writeOut(stderr, `[portweave] ${envMap.error.message}\n`)
     return 1
   }
-  await writeOut(stdout, buildJsonPayload(entry, envMap))
+  await writeOut(stdout, buildJsonPayload(entry, envMap.value))
   return 0
 }
 

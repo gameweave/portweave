@@ -30,6 +30,7 @@ function makeKey(
 
 function makeConfig(serviceNames: string[]) {
   return {
+    envAuthority: 'dotenv' as const,
     groups: {},
     services: serviceNames.map((name) => ({
       discoveryEnv: {},

@@ -1,10 +1,7 @@
+import { type PoolSpec, PORT_PRIVILEGED_FLOOR } from '../config/index.ts'
+
 export const POOL_START_DEFAULT = 30000 as const
 export const POOL_END_DEFAULT = 60000 as const
-// Ports below 1024 are privileged on POSIX (require root to bind). Allocating
-// into that range would silently produce ports the dev server can't bind to —
-// treat any start < 1024 as malformed so the user gets a warning and the
-// default range is used instead. Module-local: not part of the public surface.
-const POOL_PRIVILEGED_FLOOR = 1024
 
 export interface PoolRange {
   readonly end: number
@@ -38,14 +35,14 @@ export function resolvePoolRange(
     if (
       Number.isInteger(start) &&
       Number.isInteger(end) &&
-      start >= POOL_PRIVILEGED_FLOOR &&
+      start >= PORT_PRIVILEGED_FLOOR &&
       end > start
     ) {
       return { end, start }
     }
   }
   stderr.write(
-    `[portweave] PORTWEAVE_POOL_RANGE="${raw}" ignored — using default ${POOL_START_DEFAULT.toString()}-${POOL_END_DEFAULT.toString()} (format: <start>-<end>, integers, start >= ${POOL_PRIVILEGED_FLOOR.toString()}, end > start)\n`,
+    `[portweave] PORTWEAVE_POOL_RANGE="${raw}" ignored — using default ${POOL_START_DEFAULT.toString()}-${POOL_END_DEFAULT.toString()} (format: <start>-<end>, integers, start >= ${PORT_PRIVILEGED_FLOOR.toString()}, end > start)\n`,
   )
   return { end: POOL_END_DEFAULT, start: POOL_START_DEFAULT }
 }
@@ -93,5 +90,61 @@ export function findFreeBlock(
     oi++
   }
 
+  return null
+}
+
+/**
+ * The first port of slot `slotIndex` — slot i spans
+ * [basePort + i*stride, basePort + i*stride + serviceCount - 1].
+ *
+ * Pure. Exported because `portweave slots` enumerates the same geometry the
+ * allocator uses; there must be exactly one definition of where a slot starts.
+ */
+export function slotBasePort(pool: PoolSpec, slotIndex: number): number {
+  return pool.basePort + slotIndex * pool.stride
+}
+
+function slotIsFree(
+  occupiedSorted: readonly number[],
+  base: number,
+  serviceCount: number,
+): boolean {
+  const end = base + serviceCount - 1
+  return !occupiedSorted.some((port) => port >= base && port <= end)
+}
+
+/**
+ * Pick this worktree's slot base port.
+ *
+ * The primary worktree always gets `pool.primarySlot`, occupancy notwithstanding
+ * — pinning is the contract that makes the slot set pre-registerable with an
+ * OAuth provider, so a busy primary slot must surface as an error upstream
+ * rather than drift to a port nobody registered. Linked worktrees take the
+ * lowest free slot, skipping the primary's.
+ *
+ * Pure — no I/O. The probe loop in allocate.ts calls it repeatedly, each call
+ * passing an enlarged "occupied" set as probes fail. Because a failed probe
+ * retires the whole slot rather than advancing one port, slot boundaries stay
+ * on the declared stride no matter how many probes fail.
+ */
+export function findFreeSlot(
+  occupiedSorted: readonly number[],
+  serviceCount: number,
+  pool: PoolSpec,
+  isPrimary: boolean,
+): null | number {
+  if (isPrimary) {
+    const base = slotBasePort(pool, pool.primarySlot)
+    return slotIsFree(occupiedSorted, base, serviceCount) ? base : null
+  }
+  for (let index = 0; index < pool.slots; index += 1) {
+    if (index === pool.primarySlot) {
+      continue
+    }
+    const base = slotBasePort(pool, index)
+    if (slotIsFree(occupiedSorted, base, serviceCount)) {
+      return base
+    }
+  }
   return null
 }
