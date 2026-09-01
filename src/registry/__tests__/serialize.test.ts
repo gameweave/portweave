@@ -169,8 +169,11 @@ describe('serializeRegistry', () => {
       keyof SerializedKey extends Exclude<keyof SerializedKey, 'offsetOverride'>
         ? true
         : never
+    // Compile-time assertion only; `expect` keeps the binding used without the
+    // `void` operator, which typescript-eslint 8.69 flags as meaningless on a
+    // non-call expression.
     const _assertNoOffset: _NoOffset = true
-    void _assertNoOffset
+    expect(_assertNoOffset).toBe(true)
 
     const out = serializeRegistry({ entries: [sampleEntry], version: 1 })
     expect(out.includes('offset')).toBe(false)
