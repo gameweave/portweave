@@ -24,6 +24,44 @@ export interface Placement {
 // non-optional so the first-fit path needs no narrowing.
 const DISABLED_RANGE: PoolRange = { end: 0, start: 0 }
 
+/**
+ * Does an already-allocated block still satisfy the current placement rules?
+ *
+ * Reuse is otherwise unconditional (decision-log #37), which is right for a
+ * stable config — but the pool block is part of the config, and editing
+ * `basePort` / `stride` / `slots` / `primarySlot` silently left every existing
+ * worktree on ports outside the new geometry. That failure is invisible: the
+ * ports still work, they are just no longer in the set anyone pre-registered.
+ * Same reconciliation intent as the config-growth check in `tryReuseExisting`.
+ *
+ * First-fit mode has no geometry to violate, so nothing is rejected there.
+ */
+export function entryFitsPlacement(
+  ports: readonly number[],
+  placement: Placement,
+): boolean {
+  if (placement.pool === null) {
+    return true
+  }
+  const { basePort, primarySlot, slots, stride } = placement.pool
+  const first = Math.min(...ports)
+  const offset = first - basePort
+  if (offset < 0 || offset % stride !== 0) {
+    return false
+  }
+  const slot = offset / stride
+  if (slot >= slots) {
+    return false
+  }
+  // The primary worktree owns primarySlot and nobody else may hold it, so a
+  // block on the wrong side of that rule has to be re-rolled too.
+  if (placement.isPrimary !== (slot === primarySlot)) {
+    return false
+  }
+  const last = first + ports.length - 1
+  return ports.every((port) => port >= first && port <= last)
+}
+
 export function pickCandidate(
   allOccupied: readonly number[],
   slotCount: number,

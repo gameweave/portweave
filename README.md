@@ -168,7 +168,7 @@ Run the same command again from the same worktree and you get the **same** ports
 
 ## Configuration
 
-Portweave looks for `portweave.config.json`, starting in the working directory and walking up toward the filesystem root (so it is found from subdirectories too). Here is a configuration that exercises every supported field:
+Portweave looks for `portweave.config.json`, starting in the working directory and walking up toward the filesystem root — so it is found from a subdirectory, which is what makes per-workspace scripts work in a monorepo. Every surface resolves it the same way (`run`, `show`, `slots`, and the runtime library), and `.portweave/current.env` is always written beside the config it was resolved from. Here is a configuration that exercises every supported field:
 
 ```json
 {
@@ -266,10 +266,12 @@ With two services that gives slot 0 = 3000/3001, slot 1 = 3010/3011, … slot 9 
 | `slots`       | **required** | How many slots exist. Allocation fails rather than drifting outside the set.                          |
 | `primarySlot` | optional (0) | The slot pinned to the primary worktree.                                                              |
 
-Two behaviours are deliberate and worth knowing:
+Three behaviours are deliberate and worth knowing:
 
 - **The primary worktree always gets `primarySlot`.** If those ports are occupied, allocation fails with `PW0402` instead of moving — silently drifting off the pinned slot would break whatever was pre-registered against it.
 - **A busy port retires its whole slot, not just itself.** First-fit would slide one port forward; slot mode jumps to the next slot base, so bases stay on the declared stride no matter how many probes fail.
+
+- **Editing the pool re-rolls worktrees that no longer fit it.** Allocations are otherwise sticky and reused unconditionally, but the pool block is config: change `basePort`, `stride`, `slots` or `primarySlot` and any worktree sitting outside the new geometry gets a fresh block on the next run. Without that, those worktrees would keep working on ports that are no longer in the set you registered — the ports still bind, so nothing looks wrong until a login fails.
 
 `PORTWEAVE_POOL_RANGE` is ignored in slot mode (Portweave says so on stderr) — the geometry comes from the config, which is the point.
 

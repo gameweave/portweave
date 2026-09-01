@@ -4,6 +4,7 @@ import { err, ok, type Result } from '../result.ts'
 import { withRegistry, type WithRegistryHandle } from '../registry/storage.ts'
 import type { AllocationKey, RegistryEntry } from '../registry/types.ts'
 import {
+  entryFitsPlacement,
   noCandidateError,
   pickCandidate,
   type Placement,
@@ -83,6 +84,7 @@ function tryReuseExisting(
   handle: WithRegistryHandle,
   key: AllocationKey,
   orderedServices: ServiceSpec[],
+  placement: Placement,
 ): AllocationResult | null {
   const existing = handle.entries.find((e) => keysEqual(e.key, key))
   if (existing === undefined) {
@@ -103,6 +105,15 @@ function tryReuseExisting(
     Object.hasOwn(existing.ports, service.name),
   )
   if (!coversConfig) {
+    return null
+  }
+  // The pool block is config too: if its geometry moved, a cached block can sit
+  // outside the declared slot set entirely. Re-roll rather than hand back ports
+  // nobody registered. See entryFitsPlacement.
+  const configuredPorts = orderedServices.map(
+    (service) => existing.ports[service.name],
+  )
+  if (!entryFitsPlacement(configuredPorts, placement)) {
     return null
   }
   // Reuse is unconditional: an existing entry for this key is returned as-is,
@@ -185,7 +196,7 @@ export async function allocate(
   // the inner carries allocator-level errors.
   const outer = await withRegistry(
     async (handle): Promise<Result<AllocationResult, PortweaveError>> => {
-      const reused = tryReuseExisting(handle, key, orderedServices)
+      const reused = tryReuseExisting(handle, key, orderedServices, placement)
       if (reused !== null) {
         return ok(reused)
       }

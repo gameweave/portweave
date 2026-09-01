@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PoolSpec } from '../../config/index.ts'
+import { entryFitsPlacement } from '../placement.ts'
 import {
   findFreeBlock,
   findFreeSlot,
@@ -269,5 +270,62 @@ describe('findFreeSlot', () => {
     const wide: PoolSpec = { ...SLOT_POOL, stride: 4 }
     // slot 1 spans 3004..3007; an occupant at 3007 must retire it
     expect(findFreeSlot([3007], 4, wide, false)).toBe(3008)
+  })
+})
+
+describe('entryFitsPlacement', () => {
+  const slotPlacement = (
+    overrides: Partial<PoolSpec> = {},
+    isPrimary = false,
+  ) => ({
+    isPrimary,
+    pool: { ...SLOT_POOL, ...overrides },
+    range: { end: 0, start: 0 },
+  })
+
+  it('accepts nothing-to-violate in first-fit mode', () => {
+    expect(
+      entryFitsPlacement([48123, 48124], {
+        isPrimary: false,
+        pool: null,
+        range: { end: 60000, start: 30000 },
+      }),
+    ).toBe(true)
+  })
+
+  it('accepts a block sitting exactly on a slot base', () => {
+    expect(entryFitsPlacement([3010, 3011], slotPlacement())).toBe(true)
+  })
+
+  it('rejects a block below basePort', () => {
+    expect(entryFitsPlacement([2990, 2991], slotPlacement())).toBe(false)
+  })
+
+  it('rejects a block off the stride', () => {
+    expect(entryFitsPlacement([3013, 3014], slotPlacement())).toBe(false)
+  })
+
+  it('rejects a block past the last slot', () => {
+    expect(entryFitsPlacement([3100, 3101], slotPlacement())).toBe(false)
+  })
+
+  it('rejects a linked worktree squatting on the primary slot', () => {
+    expect(entryFitsPlacement([3000, 3001], slotPlacement())).toBe(false)
+  })
+
+  it('rejects the primary worktree sitting anywhere but its slot', () => {
+    expect(entryFitsPlacement([3010, 3011], slotPlacement({}, true))).toBe(
+      false,
+    )
+    expect(entryFitsPlacement([3000, 3001], slotPlacement({}, true))).toBe(true)
+  })
+
+  it('rejects a block whose geometry only fits the OLD basePort', () => {
+    // The concrete case: a worktree allocated under basePort 3000, then the
+    // config moved to 6100. The ports still work — they are just no longer in
+    // the set that was registered with the OAuth provider.
+    expect(
+      entryFitsPlacement([3010, 3011], slotPlacement({ basePort: 6100 })),
+    ).toBe(false)
   })
 })

@@ -565,3 +565,52 @@ describe('allocate — slot mode failures', () => {
     expect(result.value.allocation.ports.api).toBeLessThan(60000)
   })
 })
+
+describe('allocate — slot mode reconciliation', () => {
+  it('re-rolls a cached block when the pool geometry moves', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const key = makeAllocationKey(wt, { namespace: 'wt-moved' })
+
+    const before = await allocate(
+      key,
+      twoServiceSlotConfig(slotPool(41800)),
+      env(),
+    )
+    expect(before.ok).toBe(true)
+    if (!before.ok) {
+      return
+    }
+    expect(before.value.allocation.ports.web).toBe(41810)
+
+    // Same worktree, same key — only basePort moved. Handing back 41810 would
+    // leave this worktree outside the newly declared set.
+    const after = await allocate(
+      key,
+      twoServiceSlotConfig(slotPool(41900)),
+      env(),
+    )
+    expect(after.ok).toBe(true)
+    if (!after.ok) {
+      return
+    }
+    expect(after.value.reused).toBe(false)
+    expect(after.value.allocation.ports.web).toBe(41910)
+  })
+
+  it('still reuses when the geometry is unchanged', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const key = makeAllocationKey(wt, { namespace: 'wt-stable' })
+    const config = twoServiceSlotConfig(slotPool(42000))
+
+    const first = await allocate(key, config, env())
+    const second = await allocate(key, config, env())
+    expect(first.ok && second.ok).toBe(true)
+    if (!first.ok || !second.ok) {
+      return
+    }
+    expect(second.value.reused).toBe(true)
+    expect(second.value.allocation.ports).toStrictEqual(
+      first.value.allocation.ports,
+    )
+  })
+})

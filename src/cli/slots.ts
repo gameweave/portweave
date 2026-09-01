@@ -4,8 +4,12 @@ import {
   orderServicesForAllocation,
 } from '../allocator/allocate.ts'
 import { slotBasePort } from '../allocator/pool.ts'
-import type { Config, PoolSpec } from '../config/index.ts'
-import { loadConfig, type LoadConfigOptions } from '../config/loader.ts'
+import {
+  type Config,
+  CONFIG_FILENAME,
+  discoverConfig,
+  type PoolSpec,
+} from '../config/index.ts'
 import { evaluateTemplate, metadataFromKey } from '../env/index.ts'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { err, ok, type Result } from '../result.ts'
@@ -49,13 +53,20 @@ async function prepare(
   }
   const key = keyResult.value
 
-  const loadOptions: LoadConfigOptions =
-    options.configPath === undefined ? {} : { configPath: options.configPath }
-  const configResult = await loadConfig(key.worktreeRoot, loadOptions)
+  const cwd = options.cwd ?? process.cwd()
+  const configResult = await discoverConfig(cwd, options.configPath)
   if (!configResult.ok) {
     return configResult
   }
-  const config = configResult.value
+  if (configResult.value === null) {
+    return err(
+      new PortweaveError(
+        PW_ERROR_CODES.CONFIG_MISSING,
+        `no ${CONFIG_FILENAME} found by walking up from ${cwd}`,
+      ),
+    )
+  }
+  const { config } = configResult.value
 
   if (config.pool === undefined) {
     return err(

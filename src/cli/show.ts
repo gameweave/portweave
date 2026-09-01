@@ -1,12 +1,12 @@
 import type { Command } from 'commander'
 import type { Config } from '../config/index.ts'
-import type { PortweaveError } from '../errors.ts'
+import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import type { RegistryEntry } from '../registry/types.ts'
 import type { AllocationKey } from '../worktree/key.ts'
 import { computeEnvMap } from '../env/index.ts'
-import { ok, type Result } from '../result.ts'
+import { err, ok, type Result } from '../result.ts'
 import { withRegistry } from '../registry/storage.ts'
-import { loadConfig } from '../config/index.ts'
+import { CONFIG_FILENAME, discoverConfig } from '../config/index.ts'
 import { resolveAllocationKey } from '../worktree/key.ts'
 import { formatAllocationBanner, writeOut } from './banner.ts'
 
@@ -88,12 +88,13 @@ interface EmitOutputArgs {
   config: Config
   entry: RegistryEntry
   json: boolean
+  projectRoot: string
   stderr: NodeJS.WritableStream
   stdout: NodeJS.WritableStream
 }
 
 async function emitOutput(args: EmitOutputArgs): Promise<0 | 1> {
-  const { config, entry, json, stderr, stdout } = args
+  const { config, entry, json, projectRoot, stderr, stdout } = args
   if (!json) {
     const banner = formatAllocationBanner({
       allocation: entry,
@@ -106,7 +107,7 @@ async function emitOutput(args: EmitOutputArgs): Promise<0 | 1> {
   // Same computation `run` injects, `.env` layer and envAuthority included, so
   // `show --json` cannot disagree with the child's actual environment. Still
   // side-effect-free: computeEnvMap never writes .portweave/current.env.
-  const envMap = await computeEnvMap(entry, config, entry.key.worktreeRoot)
+  const envMap = await computeEnvMap(entry, config, projectRoot)
   if (!envMap.ok) {
     await writeOut(stderr, `[portweave] ${envMap.error.message}\n`)
     return 1
@@ -117,16 +118,33 @@ async function emitOutput(args: EmitOutputArgs): Promise<0 | 1> {
 
 async function resolveInputs(
   cwd: string,
-): Promise<Result<{ config: Config; key: AllocationKey }, PortweaveError>> {
+): Promise<
+  Result<
+    { config: Config; key: AllocationKey; projectRoot: string },
+    PortweaveError
+  >
+> {
   const keyResult = resolveAllocationKey(cwd)
   if (!keyResult.ok) {
     return keyResult
   }
-  const configResult = await loadConfig(keyResult.value.worktreeRoot)
+  const configResult = await discoverConfig(cwd)
   if (!configResult.ok) {
     return configResult
   }
-  return ok({ config: configResult.value, key: keyResult.value })
+  if (configResult.value === null) {
+    return err(
+      new PortweaveError(
+        PW_ERROR_CODES.CONFIG_MISSING,
+        `no ${CONFIG_FILENAME} found by walking up from ${cwd}`,
+      ),
+    )
+  }
+  return ok({
+    config: configResult.value.config,
+    key: keyResult.value,
+    projectRoot: configResult.value.projectRoot,
+  })
 }
 
 export async function runShow(
@@ -144,7 +162,7 @@ export async function runShow(
     return ok({ exitCode: 1 })
   }
 
-  const { config, key } = inputsResult.value
+  const { config, key, projectRoot } = inputsResult.value
   const registryResult = await lookupEntry(key, processEnv)
   if (!registryResult.ok) {
     await writeOut(stderr, `[portweave] ${registryResult.error.message}\n`)
@@ -163,6 +181,7 @@ export async function runShow(
     config,
     entry: registryResult.value,
     json,
+    projectRoot,
     stderr,
     stdout,
   })

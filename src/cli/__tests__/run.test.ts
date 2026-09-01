@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -434,5 +434,63 @@ describe('runCommand — --primary-only escape hatches', () => {
     const code = await runCommand([], { ...BASE_OPTS, primaryOnly: true }, io)
     expect(code).toBe(1)
     expect(io.stderrOutput.join('')).toContain('PW0601')
+  })
+})
+
+// ─── config discovery ───────────────────────────────────────────────────────
+
+describe('runCommand — config discovery', () => {
+  it('finds the project config when run from a subdirectory', async () => {
+    // The monorepo case: each workspace wraps its own dev script, so the cwd is
+    // apps/<pkg> while portweave.config.json sits at the repo root. `run` used
+    // to look only in the exact cwd and fail with PW0101 here, even though
+    // `show` in the same directory worked.
+    const subdir = join(tmpDir, 'apps', 'web')
+    await mkdir(subdir, { recursive: true })
+    const io = makeCapturingIo(subdir)
+
+    const code = await runCommand(
+      ['node', '-e', 'process.exit(0)'],
+      BASE_OPTS,
+      io,
+    )
+    expect(code).toBe(0)
+    expect(io.stderrOutput.join('')).not.toContain('PW0101')
+  })
+
+  it('writes .portweave/current.env beside the config, not beside the cwd', async () => {
+    const subdir = join(tmpDir, 'apps', 'web')
+    await mkdir(subdir, { recursive: true })
+    await runCommand(
+      ['node', '-e', 'process.exit(0)'],
+      BASE_OPTS,
+      makeSilentIo(subdir),
+    )
+
+    const atRoot = await readFile(
+      join(tmpDir, '.portweave', 'current.env'),
+      'utf8',
+    )
+    expect(atRoot).toContain('API_PORT=')
+    await expect(
+      readFile(join(subdir, '.portweave', 'current.env'), 'utf8'),
+    ).rejects.toThrow()
+  })
+
+  it('reports PW0101 naming the walk when no config exists anywhere', async () => {
+    const orphan = await mkdtemp(join(tmpdir(), 'portweave-no-config-'))
+    try {
+      const io = makeCapturingIo(orphan)
+      const code = await runCommand(
+        ['node', '-e', 'process.exit(0)'],
+        BASE_OPTS,
+        io,
+      )
+      expect(code).toBe(1)
+      expect(io.stderrOutput.join('')).toContain('PW0101')
+      expect(io.stderrOutput.join('')).toContain('walking up from')
+    } finally {
+      await cleanupDir(orphan)
+    }
   })
 })
