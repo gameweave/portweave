@@ -2,9 +2,9 @@ import { chmod, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ports } from '../index.ts'
-import { findConfigUpward } from '../upward-walk.ts'
-import { setupScopedXdg } from './_helpers.ts'
+import { ports } from '../../runtime/index.ts'
+import { setupScopedXdg } from '../../runtime/__tests__/_helpers.ts'
+import { findConfigUpward } from '../discover.ts'
 
 setupScopedXdg()
 

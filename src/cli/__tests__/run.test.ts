@@ -1,7 +1,7 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildCli } from '../../cli.ts'
 import { runCommand } from '../run.ts'
 import {
@@ -10,6 +10,8 @@ import {
   makeSilentIo,
   makeTmpGitRepo,
 } from './_helpers.ts'
+
+const BASE_OPTS = { primaryOnly: false, verbose: false }
 
 // ─── shared fixture ────────────────────────────────────────────────────────
 
@@ -30,7 +32,7 @@ describe('runCommand — orchestration', () => {
     const io = makeCapturingIo(tmpDir)
     const code = await runCommand(
       ['node', '-e', 'process.exit(0)'],
-      { verbose: false },
+      BASE_OPTS,
       io,
     )
     expect(code).toBe(0)
@@ -38,7 +40,7 @@ describe('runCommand — orchestration', () => {
 
   it('writes .portweave/current.env with API_PORT', async () => {
     const io = makeCapturingIo(tmpDir)
-    await runCommand(['node', '-e', 'process.exit(0)'], { verbose: false }, io)
+    await runCommand(['node', '-e', 'process.exit(0)'], BASE_OPTS, io)
     const envFile = await readFile(
       join(tmpDir, '.portweave', 'current.env'),
       'utf8',
@@ -55,7 +57,7 @@ describe('runCommand — orchestration', () => {
         '-e',
         `require('fs').writeFileSync('${outFile}', process.env.API_PORT ?? 'MISSING')`,
       ],
-      { verbose: false },
+      BASE_OPTS,
       io,
     )
     expect(code).toBe(0)
@@ -83,7 +85,7 @@ describe('runCommand — orchestration', () => {
         '-e',
         `require('fs').writeFileSync('${outFile}', process.env.PORTWEAVE_NAMESPACE ?? 'MISSING')`,
       ],
-      { verbose: false },
+      BASE_OPTS,
       io,
     )
     expect(code).toBe(0)
@@ -114,7 +116,7 @@ describe('runCommand — orchestration', () => {
           '-e',
           `require('fs').writeFileSync('${outFile}', process.env.DDB_TABLE_PREFIX ?? 'MISSING')`,
         ],
-        { verbose: false },
+        BASE_OPTS,
         io,
       )
       expect(code).toBe(0)
@@ -132,7 +134,7 @@ describe('runCommand — orchestration', () => {
 
   it('banner lines go to stderr not stdout', async () => {
     const io = makeCapturingIo(tmpDir)
-    await runCommand(['node', '-e', 'process.exit(0)'], { verbose: false }, io)
+    await runCommand(['node', '-e', 'process.exit(0)'], BASE_OPTS, io)
     const errOutput = io.stderrOutput.join('')
     expect(errOutput).toContain('[portweave]')
     expect(errOutput).toContain('API_PORT')
@@ -140,7 +142,7 @@ describe('runCommand — orchestration', () => {
 
   it('banner includes worktree header and allocated verb', async () => {
     const io = makeCapturingIo(tmpDir)
-    await runCommand(['node', '-e', 'process.exit(0)'], { verbose: false }, io)
+    await runCommand(['node', '-e', 'process.exit(0)'], BASE_OPTS, io)
     const errOutput = io.stderrOutput.join('')
     expect(errOutput).toContain('[portweave] worktree:')
     expect(errOutput).toContain('[portweave] allocated:')
@@ -148,7 +150,7 @@ describe('runCommand — orchestration', () => {
 
   it('banner includes "wrote .portweave/current.env" line', async () => {
     const io = makeCapturingIo(tmpDir)
-    await runCommand(['node', '-e', 'process.exit(0)'], { verbose: false }, io)
+    await runCommand(['node', '-e', 'process.exit(0)'], BASE_OPTS, io)
     expect(io.stderrOutput.join('')).toContain(
       '[portweave] wrote .portweave/current.env',
     )
@@ -158,7 +160,7 @@ describe('runCommand — orchestration', () => {
     const io = makeCapturingIo(tmpDir)
     const code = await runCommand(
       ['node', '-e', 'process.exit(5)'],
-      { verbose: false },
+      BASE_OPTS,
       io,
     )
     expect(code).toBe(5)
@@ -166,7 +168,11 @@ describe('runCommand — orchestration', () => {
 
   it('--verbose adds diagnostic lines to banner', async () => {
     const io = makeCapturingIo(tmpDir)
-    await runCommand(['node', '-e', 'process.exit(0)'], { verbose: true }, io)
+    await runCommand(
+      ['node', '-e', 'process.exit(0)'],
+      { ...BASE_OPTS, verbose: true },
+      io,
+    )
     expect(io.stderrOutput.join('')).toContain('[portweave]')
   })
 })
@@ -178,7 +184,7 @@ describe('runCommand — flag validation', () => {
     const io = makeCapturingIo(tmpDir)
     const code = await runCommand(
       ['node', '-e', 'process.exit(0)'],
-      { configPath: './portweave.config.json', count: 3, verbose: false },
+      { ...BASE_OPTS, configPath: './portweave.config.json', count: 3 },
       io,
     )
     expect(code).toBe(1)
@@ -187,7 +193,7 @@ describe('runCommand — flag validation', () => {
 
   it('empty child args returns exit 1 with CLI_INVALID_FLAGS', async () => {
     const io = makeCapturingIo(tmpDir)
-    const code = await runCommand([], { verbose: false }, io)
+    const code = await runCommand([], BASE_OPTS, io)
     expect(code).toBe(1)
     expect(io.stderrOutput.join('')).toContain('PW0601')
   })
@@ -196,7 +202,7 @@ describe('runCommand — flag validation', () => {
     const io = makeCapturingIo(tmpDir)
     const code = await runCommand(
       ['node', '-e', 'process.exit(0)'],
-      { count: 2.5, verbose: false },
+      { ...BASE_OPTS, count: 2.5 },
       io,
     )
     expect(code).toBe(1)
@@ -207,7 +213,7 @@ describe('runCommand — flag validation', () => {
     const io = makeCapturingIo(tmpDir)
     const code = await runCommand(
       ['node', '-e', 'process.exit(0)'],
-      { count: 0, verbose: false },
+      { ...BASE_OPTS, count: 0 },
       io,
     )
     expect(code).toBe(1)
@@ -224,7 +230,7 @@ describe('runCommand — flag validation', () => {
         '-e',
         `require('fs').writeFileSync('${outFile}', process.env.ALT_API_PORT ?? '')`,
       ],
-      { configPath: './alt.config.json', verbose: false },
+      { ...BASE_OPTS, configPath: './alt.config.json' },
       io,
     )
     expect(code).toBe(0)
@@ -252,7 +258,7 @@ describe('runCommand — anonymous mode', () => {
       const io = makeSilentIo(noConfigDir)
       const code = await runCommand(
         ['node', '-e', childScript],
-        { count: 3, verbose: false },
+        { ...BASE_OPTS, count: 3 },
         io,
       )
       expect(code).toBe(0)
@@ -273,7 +279,7 @@ describe('runCommand — anonymous mode', () => {
       const io = makeSilentIo(noConfigDir)
       await runCommand(
         ['node', '-e', 'process.exit(0)'],
-        { count: 3, verbose: false },
+        { ...BASE_OPTS, count: 3 },
         io,
       )
       const envFile = await readFile(
@@ -294,7 +300,7 @@ describe('runCommand — anonymous mode', () => {
       const io = makeSilentIo(noConfigDir)
       const code = await runCommand(
         ['node', '-e', 'process.exit(0)'],
-        { verbose: false },
+        BASE_OPTS,
         io,
       )
       expect(code).not.toBe(0)
@@ -311,7 +317,7 @@ describe('runCommand — anonymous mode', () => {
     try {
       const code = await runCommand(
         ['node', '-e', childScript],
-        { count: 1, verbose: false },
+        { ...BASE_OPTS, count: 1 },
         io,
       )
       if (code === 0) {
@@ -339,11 +345,7 @@ describe.skipIf(isWindows)('runCommand — signal forwarding', () => {
         setTimeout(() => {}, 30000);
       `
     const io = makeSilentIo(tmpDir)
-    const runPromise = runCommand(
-      ['node', '-e', childScript],
-      { verbose: false },
-      io,
-    )
+    const runPromise = runCommand(['node', '-e', childScript], BASE_OPTS, io)
     await new Promise<void>((resolve) => setTimeout(resolve, 300))
     process.kill(process.pid, 'SIGINT')
     const code = await runPromise
@@ -356,4 +358,139 @@ describe.skipIf(isWindows)('runCommand — signal forwarding', () => {
     }
     expect(markerExists || code === 130).toBe(true)
   }, 10000)
+})
+
+// ─── --primary-only ─────────────────────────────────────────────────────────
+
+// A bare temp dir is its own main worktree, so the derived namespace is
+// already "main"; the linked case is simulated with the namespace override.
+function ioWithEnv(cwd: string, extra: NodeJS.ProcessEnv) {
+  const io = makeCapturingIo(cwd)
+  return { ...io, env: { ...process.env, ...extra } }
+}
+
+describe('runCommand — --primary-only', () => {
+  it('runs the command in the primary worktree', async () => {
+    const io = makeCapturingIo(tmpDir)
+    const code = await runCommand(
+      ['node', '-e', 'process.exit(7)'],
+      { ...BASE_OPTS, primaryOnly: true },
+      io,
+    )
+    expect(code).toBe(7)
+  })
+
+  it('skips with exit 0 in a linked worktree, without spawning', async () => {
+    vi.stubEnv('PORTWEAVE_NAMESPACE', 'feature-branch')
+    const io = makeCapturingIo(tmpDir)
+    const code = await runCommand(
+      ['node', '-e', 'process.exit(7)'],
+      { ...BASE_OPTS, primaryOnly: true },
+      io,
+    )
+    // 0, not 7 — the child never ran.
+    expect(code).toBe(0)
+    expect(io.stderrOutput.join('')).toContain('--primary-only')
+    expect(io.stderrOutput.join('')).toContain('feature-branch')
+  })
+
+  it('does not write .portweave/current.env when it skips', async () => {
+    vi.stubEnv('PORTWEAVE_NAMESPACE', 'feature-branch')
+    await runCommand(
+      ['node', '-e', 'process.exit(0)'],
+      { ...BASE_OPTS, primaryOnly: true },
+      makeSilentIo(tmpDir),
+    )
+    await expect(
+      readFile(join(tmpDir, '.portweave', 'current.env'), 'utf8'),
+    ).rejects.toThrow()
+  })
+})
+
+describe('runCommand — --primary-only escape hatches', () => {
+  it('PORTWEAVE_PRIMARY=1 forces the command to run in a linked worktree', async () => {
+    vi.stubEnv('PORTWEAVE_NAMESPACE', 'feature-branch')
+    const code = await runCommand(
+      ['node', '-e', 'process.exit(7)'],
+      { ...BASE_OPTS, primaryOnly: true },
+      ioWithEnv(tmpDir, { PORTWEAVE_PRIMARY: '1' }),
+    )
+    expect(code).toBe(7)
+  })
+
+  it('is inert without the flag', async () => {
+    vi.stubEnv('PORTWEAVE_NAMESPACE', 'feature-branch')
+    const code = await runCommand(
+      ['node', '-e', 'process.exit(7)'],
+      BASE_OPTS,
+      makeSilentIo(tmpDir),
+    )
+    expect(code).toBe(7)
+  })
+
+  it('still rejects a missing command before considering the flag', async () => {
+    vi.stubEnv('PORTWEAVE_NAMESPACE', 'feature-branch')
+    const io = makeCapturingIo(tmpDir)
+    const code = await runCommand([], { ...BASE_OPTS, primaryOnly: true }, io)
+    expect(code).toBe(1)
+    expect(io.stderrOutput.join('')).toContain('PW0601')
+  })
+})
+
+// ─── config discovery ───────────────────────────────────────────────────────
+
+describe('runCommand — config discovery', () => {
+  it('finds the project config when run from a subdirectory', async () => {
+    // The monorepo case: each workspace wraps its own dev script, so the cwd is
+    // apps/<pkg> while portweave.config.json sits at the repo root. `run` used
+    // to look only in the exact cwd and fail with PW0101 here, even though
+    // `show` in the same directory worked.
+    const subdir = join(tmpDir, 'apps', 'web')
+    await mkdir(subdir, { recursive: true })
+    const io = makeCapturingIo(subdir)
+
+    const code = await runCommand(
+      ['node', '-e', 'process.exit(0)'],
+      BASE_OPTS,
+      io,
+    )
+    expect(code).toBe(0)
+    expect(io.stderrOutput.join('')).not.toContain('PW0101')
+  })
+
+  it('writes .portweave/current.env beside the config, not beside the cwd', async () => {
+    const subdir = join(tmpDir, 'apps', 'web')
+    await mkdir(subdir, { recursive: true })
+    await runCommand(
+      ['node', '-e', 'process.exit(0)'],
+      BASE_OPTS,
+      makeSilentIo(subdir),
+    )
+
+    const atRoot = await readFile(
+      join(tmpDir, '.portweave', 'current.env'),
+      'utf8',
+    )
+    expect(atRoot).toContain('API_PORT=')
+    await expect(
+      readFile(join(subdir, '.portweave', 'current.env'), 'utf8'),
+    ).rejects.toThrow()
+  })
+
+  it('reports PW0101 naming the walk when no config exists anywhere', async () => {
+    const orphan = await mkdtemp(join(tmpdir(), 'portweave-no-config-'))
+    try {
+      const io = makeCapturingIo(orphan)
+      const code = await runCommand(
+        ['node', '-e', 'process.exit(0)'],
+        BASE_OPTS,
+        io,
+      )
+      expect(code).toBe(1)
+      expect(io.stderrOutput.join('')).toContain('PW0101')
+      expect(io.stderrOutput.join('')).toContain('walking up from')
+    } finally {
+      await cleanupDir(orphan)
+    }
+  })
 })

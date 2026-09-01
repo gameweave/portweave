@@ -6,6 +6,7 @@ import { registerPanelCommand } from './cli/panel.ts'
 import { registerPruneCommand } from './cli/prune.ts'
 import { registerRunCommand } from './cli/run.ts'
 import { registerShowCommand } from './cli/show.ts'
+import { registerSlotsCommand } from './cli/slots.ts'
 
 const require = createRequire(import.meta.url)
 const pkg = require('../package.json') as { version: string }
@@ -21,10 +22,15 @@ export function buildCli(): Command {
     .enablePositionalOptions()
     .option('--config <path>', 'path to portweave config file')
     .option('--count <n>', 'number of ports to allocate (anonymous mode)')
+    .option(
+      '--primary-only',
+      'with "run": do nothing (exit 0) unless this is the primary worktree',
+    )
     .option('--verbose', 'print additional diagnostic output')
 
   registerRunCommand(program)
   registerShowCommand(program)
+  registerSlotsCommand(program)
   registerPruneCommand(program)
   registerPanelCommand(program)
 

@@ -1,15 +1,23 @@
 import type { Command } from 'commander'
 import { allocate, type AllocationResult } from '../allocator/allocate.ts'
 import { synthesizeAnonymousConfig } from '../config/anonymous.ts'
-import type { Config } from '../config/index.ts'
-import { loadConfig } from '../config/loader.ts'
+import {
+  type Config,
+  CONFIG_FILENAME,
+  discoverConfig,
+} from '../config/index.ts'
 import { type ResolvedEnv, resolveEnv } from '../env/index.ts'
 import { PORTWEAVE_NAMESPACE_VAR } from '../env/metadata.ts'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
-import { resolveRegistryPath } from '../registry/paths.ts'
-import { err, type Result } from '../result.ts'
+import { err, ok, type Result } from '../result.ts'
 import { type AllocationKey, resolveAllocationKey } from '../worktree/key.ts'
-import { formatAllocationBanner, formatErrorLine } from './banner.ts'
+import {
+  buildVerboseLines,
+  formatAllocationBanner,
+  formatErrorLine,
+} from './banner.ts'
+import { validateFlags } from './flags.ts'
+import { skipAsNonPrimary } from './primary-only.ts'
 import { resolveExitCode, spawnChild } from './spawn.ts'
 
 export interface RunIo {
@@ -22,6 +30,7 @@ export interface RunIo {
 export interface RunOptions {
   configPath?: string
   count?: number
+  primaryOnly: boolean
   verbose: boolean
 }
 
@@ -61,74 +70,38 @@ function writePortweaveError(
   })
 }
 
-function validateFlags(
-  childArgs: readonly string[],
-  options: RunOptions,
-): Result<void, PortweaveError> {
-  if (options.configPath !== undefined && options.count !== undefined) {
-    return err(
-      new PortweaveError(
-        PW_ERROR_CODES.CLI_INVALID_FLAGS,
-        '--config and --count are mutually exclusive',
-      ),
-    )
-  }
-  if (childArgs.length === 0) {
-    return err(
-      new PortweaveError(
-        PW_ERROR_CODES.CLI_INVALID_FLAGS,
-        'no command provided after --',
-      ),
-    )
-  }
-  if (
-    options.count !== undefined &&
-    (!Number.isInteger(options.count) || options.count <= 0)
-  ) {
-    return err(
-      new PortweaveError(
-        PW_ERROR_CODES.CLI_INVALID_FLAGS,
-        `--count must be a positive integer, received ${String(options.count)}`,
-      ),
-    )
-  }
-  return { ok: true, value: undefined }
+interface ResolvedProject {
+  readonly config: Config
+  /** Where `.portweave/current.env` is written. */
+  readonly projectRoot: null | string
 }
 
-async function resolveConfig(
+async function resolveProject(
   cwd: string,
   options: RunOptions,
-  io: RunIo,
-): Promise<Config | null> {
+): Promise<Result<ResolvedProject, PortweaveError>> {
   if (options.count !== undefined) {
     const result = synthesizeAnonymousConfig(options.count)
     if (!result.ok) {
-      writePortweaveError(result.error, io, options.verbose)
-      return null
+      return result
     }
-    return result.value
+    // Anonymous mode has no config file to sit beside; the caller falls back to
+    // the worktree root.
+    return ok({ config: result.value, projectRoot: null })
   }
-  const result = await loadConfig(cwd, { configPath: options.configPath })
+  const result = await discoverConfig(cwd, options.configPath)
   if (!result.ok) {
-    writePortweaveError(result.error, io, options.verbose)
-    return null
+    return result
   }
-  return result.value
-}
-
-function buildVerboseLines(
-  config: Config,
-  key: AllocationKey,
-  env: NodeJS.ProcessEnv,
-): string[] {
-  const configLabel =
-    config.sourcePath ??
-    (config.source === 'anonymous' ? '<anonymous-mode>' : '<unknown>')
-  return [
-    `[portweave] config: ${configLabel}`,
-    `[portweave] registry: ${resolveRegistryPath(env).registryFile}`,
-    `[portweave] key: ${JSON.stringify({ gitCommonDir: key.gitCommonDir, namespace: key.namespace, worktreeRoot: key.worktreeRoot })}`,
-  ]
+  if (result.value === null) {
+    return err(
+      new PortweaveError(
+        PW_ERROR_CODES.CONFIG_MISSING,
+        `no ${CONFIG_FILENAME} found by walking up from ${cwd}`,
+      ),
+    )
+  }
+  return ok(result.value)
 }
 
 interface SpawnBannerContext {
@@ -195,10 +168,17 @@ export async function runCommand(
   }
   const key = keyResult.value
 
-  const config = await resolveConfig(io.cwd(), options, io)
-  if (config === null) {
+  if (options.primaryOnly && skipAsNonPrimary(key, io)) {
+    return 0
+  }
+
+  const projectResult = await resolveProject(io.cwd(), options)
+  if (!projectResult.ok) {
+    writePortweaveError(projectResult.error, io, options.verbose)
     return 1
   }
+  const project = projectResult.value
+  const { config } = project
 
   const allocResult = await allocate(key, config, io.env)
   if (!allocResult.ok) {
@@ -209,7 +189,7 @@ export async function runCommand(
   const envResult = await resolveEnv(
     allocResult.value.allocation,
     config,
-    key.worktreeRoot,
+    project.projectRoot ?? key.worktreeRoot,
   )
   if (!envResult.ok) {
     writePortweaveError(envResult.error, io, options.verbose)
@@ -237,12 +217,14 @@ export function registerRunCommand(program: Command): void {
       const opts = program.opts<{
         config?: string
         count?: string
+        primaryOnly?: boolean
         verbose?: boolean
       }>()
       const count = opts.count !== undefined ? Number(opts.count) : undefined
       const exitCode = await runCommand(childArgs, {
         configPath: opts.config,
         count,
+        primaryOnly: opts.primaryOnly === true,
         verbose: opts.verbose === true,
       })
       process.exitCode = exitCode

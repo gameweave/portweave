@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import { PW_ERROR_CODES } from '../../errors.ts'
-import { validateAndNormalizeConfig } from '../schema.ts'
+import { type Config, validateAndNormalizeConfig } from '../schema.ts'
+
+// Collects the deprecation / advisory lines validateAndNormalizeConfig writes,
+// so a fixture that still carries `preferred` does not spray warnings into the
+// test reporter.
+function makeSink(): { lines: string[]; write: (msg: string) => boolean } {
+  const lines: string[] = []
+  return {
+    lines,
+    write: (msg: string) => {
+      lines.push(msg)
+      return true
+    },
+  }
+}
 
 const SAMPLE_APPENDIX_A = {
   $schema:
@@ -55,10 +69,14 @@ const SAMPLE_APPENDIX_A = {
 
 describe('validateAndNormalizeConfig — happy path', () => {
   it('accepts DESIGN.md Appendix A and lifts the eight service names', () => {
-    const result = validateAndNormalizeConfig(SAMPLE_APPENDIX_A, {
-      source: 'file',
-      sourcePath: '/tmp/portweave.config.json',
-    })
+    const result = validateAndNormalizeConfig(
+      SAMPLE_APPENDIX_A,
+      {
+        source: 'file',
+        sourcePath: '/tmp/portweave.config.json',
+      },
+      makeSink(),
+    )
     expect(result.ok).toBe(true)
     if (!result.ok) {
       return
@@ -165,6 +183,18 @@ function expectInvalid(input: unknown, fieldHint: string): { message: string } {
   expect(result.error.code).toBe(PW_ERROR_CODES.CONFIG_INVALID)
   expect(result.error.message).toContain(fieldHint)
   return { message: result.error.message }
+}
+
+function expectValid(input: unknown): Config {
+  const result = validateAndNormalizeConfig(
+    input,
+    { source: 'file' },
+    makeSink(),
+  )
+  if (!result.ok) {
+    throw new Error(`expected success, got: ${result.error.message}`)
+  }
+  return result.value
 }
 
 describe('validateAndNormalizeConfig — shape failures', () => {
@@ -503,5 +533,122 @@ describe('validateAndNormalizeConfig — projectName', () => {
       },
       'bogus',
     )
+  })
+})
+
+describe('validateAndNormalizeConfig — envAuthority', () => {
+  it('defaults to dotenv when unset', () => {
+    const config = expectValid({ services: { api: { envVar: 'API_PORT' } } })
+    expect(config.envAuthority).toBe('dotenv')
+  })
+
+  it('carries an explicit portweave authority through normalization', () => {
+    const config = expectValid({
+      envAuthority: 'portweave',
+      services: { api: { envVar: 'API_PORT' } },
+    })
+    expect(config.envAuthority).toBe('portweave')
+  })
+
+  it('rejects an unknown authority', () => {
+    expectInvalid(
+      { envAuthority: 'whatever', services: { api: { envVar: 'API_PORT' } } },
+      'envAuthority',
+    )
+  })
+})
+
+describe('validateAndNormalizeConfig — pool (slot mode)', () => {
+  const twoServices = {
+    api: { envVar: 'API_PORT' },
+    web: { envVar: 'WEB_PORT' },
+  }
+
+  function withPool(pool: unknown): { pool: unknown; services: unknown } {
+    return { pool, services: twoServices }
+  }
+
+  const validPool = { basePort: 3000, mode: 'slots', slots: 10, stride: 10 }
+
+  it('normalizes a valid pool and defaults primarySlot to 0', () => {
+    expect(expectValid(withPool(validPool)).pool).toStrictEqual({
+      basePort: 3000,
+      mode: 'slots',
+      primarySlot: 0,
+      slots: 10,
+      stride: 10,
+    })
+  })
+
+  it('leaves pool undefined when the block is absent', () => {
+    expect(expectValid({ services: twoServices }).pool).toBeUndefined()
+  })
+
+  it('accepts a stride exactly equal to the service count', () => {
+    expect(
+      expectValid(withPool({ ...validPool, stride: 2 })).pool,
+    ).toBeDefined()
+  })
+
+  it('rejects a stride narrower than the service count', () => {
+    expectInvalid(withPool({ ...validPool, stride: 1 }), 'pool.stride')
+  })
+
+  it('rejects a primarySlot outside the slot count', () => {
+    expectInvalid(
+      withPool({ ...validPool, primarySlot: 10 }),
+      'pool.primarySlot',
+    )
+  })
+
+  it('rejects a basePort in the privileged range', () => {
+    expectInvalid(withPool({ ...validPool, basePort: 80 }), 'pool.basePort')
+  })
+
+  it('rejects a slot set whose last slot would run past port 65535', () => {
+    expectInvalid(
+      withPool({ ...validPool, basePort: 65000, slots: 100 }),
+      '65535',
+    )
+  })
+
+  it('rejects an unknown mode', () => {
+    expectInvalid(withPool({ ...validPool, mode: 'random' }), 'mode')
+  })
+
+  it('rejects an unknown key inside the pool block', () => {
+    expectInvalid(withPool({ ...validPool, bogus: 1 }), 'bogus')
+  })
+})
+
+describe('validateAndNormalizeConfig — deprecated preferred', () => {
+  it('still accepts preferred but warns, naming every service that sets it', () => {
+    const sink = makeSink()
+    const result = validateAndNormalizeConfig(
+      {
+        services: {
+          api: { envVar: 'API_PORT', preferred: 3001 },
+          web: { envVar: 'WEB_PORT', preferred: 3000 },
+        },
+      },
+      { source: 'file' },
+      sink,
+    )
+    expect(result.ok).toBe(true)
+    const warning = sink.lines.join('')
+    expect(warning).toContain('"preferred" is ignored')
+    expect(warning).toContain('api')
+    expect(warning).toContain('web')
+  })
+
+  it('stays silent when no service sets preferred', () => {
+    const sink = makeSink()
+    expectValid({ services: { api: { envVar: 'API_PORT' } } })
+    validateAndNormalizeConfig(
+      { services: { api: { envVar: 'API_PORT' } } },
+      { source: 'file' },
+      sink,
+    )
+    expect(sink.lines).toStrictEqual([])
   })
 })

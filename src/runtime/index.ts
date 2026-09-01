@@ -1,15 +1,15 @@
-import { dirname, resolve as resolvePath } from 'node:path'
+import { resolve as resolvePath } from 'node:path'
 import { allocate, type Allocation } from '../allocator/allocate.ts'
 import {
   type Config,
-  loadConfig,
+  CONFIG_FILENAME,
+  discoverConfig,
   synthesizeAnonymousConfig,
 } from '../config/index.ts'
 import { resolveEnv } from '../env/index.ts'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { err, ok, type Result } from '../result.ts'
 import { resolveAllocationKey } from '../worktree/key.ts'
-import { CONFIG_FILENAME, findConfigUpward } from './upward-walk.ts'
 
 const PORT_MIN = 1
 const PORT_MAX = 65535
@@ -33,28 +33,12 @@ async function resolveConfigForRuntime(
   cwd: string,
   opts: PortsOptions | undefined,
 ): Promise<Result<{ config: Config; projectRoot: string }, PortweaveError>> {
-  // Explicit configPath wins — no upward walk.
-  if (opts?.configPath !== undefined) {
-    const absConfigPath = resolvePath(cwd, opts.configPath)
-    const loaded = await loadConfig(dirname(absConfigPath), {
-      configPath: absConfigPath,
-    })
-    if (!loaded.ok) {
-      return loaded
-    }
-    return ok({ config: loaded.value, projectRoot: dirname(absConfigPath) })
+  const discovered = await discoverConfig(cwd, opts?.configPath)
+  if (!discovered.ok) {
+    return discovered
   }
-
-  // Upward walk: cwd → parent → ... → filesystem root.
-  const found = await findConfigUpward(cwd)
-  if (found !== null) {
-    const loaded = await loadConfig(found.dir, {
-      configPath: CONFIG_FILENAME,
-    })
-    if (!loaded.ok) {
-      return loaded
-    }
-    return ok({ config: loaded.value, projectRoot: found.dir })
+  if (discovered.value !== null) {
+    return ok(discovered.value)
   }
 
   // No config file found. Anonymous fallback if `count` is provided.

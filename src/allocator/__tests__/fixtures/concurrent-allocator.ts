@@ -23,6 +23,7 @@ async function main(): Promise<void> {
   }
 
   const config: Config = {
+    envAuthority: 'dotenv',
     groups: {},
     services: [
       { discoveryEnv: {}, envVar: 'API_PORT', name: 'api' },

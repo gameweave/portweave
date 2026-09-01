@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest'
+import type { PoolSpec } from '../../config/index.ts'
+import { entryFitsPlacement } from '../placement.ts'
 import {
   findFreeBlock,
+  findFreeSlot,
   POOL_END_DEFAULT,
   POOL_START_DEFAULT,
   resolvePoolRange,
+  slotBasePort,
 } from '../pool.ts'
 
 const DEFAULT_RANGE = { end: POOL_END_DEFAULT, start: POOL_START_DEFAULT }
@@ -201,5 +205,127 @@ describe('resolvePoolRange', () => {
     }
     resolvePoolRange({ PORTWEAVE_POOL_RANGE: '40000-50000' }, stderr)
     expect(warnings).toHaveLength(0)
+  })
+})
+
+const SLOT_POOL: PoolSpec = {
+  basePort: 3000,
+  mode: 'slots',
+  primarySlot: 0,
+  slots: 10,
+  stride: 10,
+}
+
+describe('slotBasePort', () => {
+  it('places slot 0 at basePort', () => {
+    expect(slotBasePort(SLOT_POOL, 0)).toBe(3000)
+  })
+
+  it('advances by stride per slot', () => {
+    expect(slotBasePort(SLOT_POOL, 1)).toBe(3010)
+    expect(slotBasePort(SLOT_POOL, 9)).toBe(3090)
+  })
+})
+
+describe('findFreeSlot', () => {
+  it('pins the primary worktree to primarySlot even when later slots are free', () => {
+    expect(findFreeSlot([], 2, SLOT_POOL, true)).toBe(3000)
+  })
+
+  it('returns null for the primary worktree when its pinned slot is taken', () => {
+    // Deliberately does NOT fall through to slot 1 — drifting off the pinned
+    // slot is what would break anything pre-registered against those ports.
+    expect(findFreeSlot([3001], 2, SLOT_POOL, true)).toBeNull()
+  })
+
+  it('gives a linked worktree the lowest slot above the primary', () => {
+    expect(findFreeSlot([3000, 3001], 2, SLOT_POOL, false)).toBe(3010)
+  })
+
+  it('never hands a linked worktree the primary slot, even when it is free', () => {
+    expect(findFreeSlot([], 2, SLOT_POOL, false)).toBe(3010)
+  })
+
+  it('skips a whole slot when any one of its ports is occupied', () => {
+    // 3011 occupied retires slot 1 entirely; the next base stays on the stride
+    // rather than becoming 3012 the way first-fit would.
+    expect(findFreeSlot([3011], 2, SLOT_POOL, false)).toBe(3020)
+  })
+
+  it('honours a non-zero primarySlot in both directions', () => {
+    const pool: PoolSpec = { ...SLOT_POOL, primarySlot: 3 }
+    expect(findFreeSlot([], 2, pool, true)).toBe(3030)
+    expect(findFreeSlot([3000, 3001], 2, pool, false)).toBe(3010)
+  })
+
+  it('returns null once every non-primary slot is occupied', () => {
+    const occupied: number[] = []
+    for (let slot = 1; slot < SLOT_POOL.slots; slot += 1) {
+      occupied.push(slotBasePort(SLOT_POOL, slot))
+    }
+    expect(findFreeSlot(occupied, 2, SLOT_POOL, false)).toBeNull()
+  })
+
+  it('accounts for the full service width when testing a slot', () => {
+    const wide: PoolSpec = { ...SLOT_POOL, stride: 4 }
+    // slot 1 spans 3004..3007; an occupant at 3007 must retire it
+    expect(findFreeSlot([3007], 4, wide, false)).toBe(3008)
+  })
+})
+
+describe('entryFitsPlacement', () => {
+  const slotPlacement = (
+    overrides: Partial<PoolSpec> = {},
+    isPrimary = false,
+  ) => ({
+    isPrimary,
+    pool: { ...SLOT_POOL, ...overrides },
+    range: { end: 0, start: 0 },
+  })
+
+  it('accepts nothing-to-violate in first-fit mode', () => {
+    expect(
+      entryFitsPlacement([48123, 48124], {
+        isPrimary: false,
+        pool: null,
+        range: { end: 60000, start: 30000 },
+      }),
+    ).toBe(true)
+  })
+
+  it('accepts a block sitting exactly on a slot base', () => {
+    expect(entryFitsPlacement([3010, 3011], slotPlacement())).toBe(true)
+  })
+
+  it('rejects a block below basePort', () => {
+    expect(entryFitsPlacement([2990, 2991], slotPlacement())).toBe(false)
+  })
+
+  it('rejects a block off the stride', () => {
+    expect(entryFitsPlacement([3013, 3014], slotPlacement())).toBe(false)
+  })
+
+  it('rejects a block past the last slot', () => {
+    expect(entryFitsPlacement([3100, 3101], slotPlacement())).toBe(false)
+  })
+
+  it('rejects a linked worktree squatting on the primary slot', () => {
+    expect(entryFitsPlacement([3000, 3001], slotPlacement())).toBe(false)
+  })
+
+  it('rejects the primary worktree sitting anywhere but its slot', () => {
+    expect(entryFitsPlacement([3010, 3011], slotPlacement({}, true))).toBe(
+      false,
+    )
+    expect(entryFitsPlacement([3000, 3001], slotPlacement({}, true))).toBe(true)
+  })
+
+  it('rejects a block whose geometry only fits the OLD basePort', () => {
+    // The concrete case: a worktree allocated under basePort 3000, then the
+    // config moved to 6100. The ports still work — they are just no longer in
+    // the set that was registered with the OAuth provider.
+    expect(
+      entryFitsPlacement([3010, 3011], slotPlacement({ basePort: 6100 })),
+    ).toBe(false)
   })
 })

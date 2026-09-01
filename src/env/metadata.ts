@@ -1,4 +1,5 @@
 import type { Allocation } from '../allocator/allocate.ts'
+import type { AllocationKey } from '../registry/types.ts'
 
 // Reserved output env var: the namespace Portweave used to allocate. Always
 // injected by `buildEnvMap` and re-asserted authoritatively (see resolve.ts /
@@ -27,13 +28,20 @@ export const PW_METADATA_FIELDS = [
   'worktreeRoot',
 ] as const satisfies readonly PwMetadataField[]
 
-export function buildMetadata(
-  allocation: Allocation,
+export function metadataFromKey(
+  key: AllocationKey,
+  namespace: string,
 ): Record<PwMetadataField, string> {
   return {
     // null outside a git repo → empty string (documented, never throws)
-    gitCommonDir: allocation.key.gitCommonDir ?? '',
-    namespace: allocation.namespace,
-    worktreeRoot: allocation.key.worktreeRoot,
+    gitCommonDir: key.gitCommonDir ?? '',
+    namespace,
+    worktreeRoot: key.worktreeRoot,
   }
+}
+
+export function buildMetadata(
+  allocation: Allocation,
+): Record<PwMetadataField, string> {
+  return metadataFromKey(allocation.key, allocation.namespace)
 }

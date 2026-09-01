@@ -1,55 +1,23 @@
-import { z } from 'zod'
-import {
-  PW_METADATA_FIELDS,
-  PW_METADATA_PREFIX,
-  RESERVED_NAMESPACE_TOKEN,
-} from '../env/metadata.ts'
+import type { z } from 'zod'
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { err, ok, type Result } from '../result.ts'
+import { checkCrossFieldRules } from './cross-field.ts'
+import {
+  configFileSchema,
+  ENV_AUTHORITY_DEFAULT,
+  type EnvAuthority,
+  type RawConfigFile,
+} from './shapes.ts'
 
-const SERVICE_NAME_PATTERN = /^[a-z][a-z0-9-]*$/
-const ENV_VAR_PATTERN = /^[A-Z][A-Z0-9_]*$/
-const PLACEHOLDER_PATTERN = /\$\{([^}]+)\}/g
-const PORT_MIN = 1
-const PORT_MAX = 65535
-// Reserved for Portweave's own injected output vars (e.g. PORTWEAVE_NAMESPACE);
-// a user envVar/discoveryEnv key here would collide with what `run` injects.
-const RESERVED_ENV_PREFIX = 'PORTWEAVE_'
+export { ENV_AUTHORITY_DEFAULT, PORT_PRIVILEGED_FLOOR } from './shapes.ts'
 
-const envVarSchema = z
-  .string()
-  .regex(ENV_VAR_PATTERN, 'envVar must match /^[A-Z][A-Z0-9_]*$/')
-
-const discoveryEnvSchema = z.record(envVarSchema, z.string())
-
-const serviceEntrySchema = z.strictObject({
-  discoveryEnv: discoveryEnvSchema.optional(),
-  envVar: envVarSchema,
-  group: z.string().min(1, 'group must be a non-empty string').optional(),
-  preferred: z
-    .int('preferred must be an integer')
-    .min(PORT_MIN, `preferred must be >= ${String(PORT_MIN)}`)
-    .max(PORT_MAX, `preferred must be <= ${String(PORT_MAX)}`)
-    .optional(),
-})
-
-const servicesMapSchema = z
-  .record(
-    z.string().regex(SERVICE_NAME_PATTERN, 'service name must be kebab-case'),
-    serviceEntrySchema,
-  )
-  .refine((value) => Object.keys(value).length > 0, {
-    error: 'services must contain at least one entry',
-  })
-
-const configFileSchema = z.strictObject({
-  $schema: z.string().optional(),
-  projectName: z.string().trim().min(1).max(100).optional(),
-  services: servicesMapSchema,
-})
-
-type RawServiceEntry = z.infer<typeof serviceEntrySchema>
-type RawConfigFile = z.infer<typeof configFileSchema>
+export interface PoolSpec {
+  basePort: number
+  mode: 'slots'
+  primarySlot: number
+  slots: number
+  stride: number
+}
 
 export interface ServiceSpec {
   discoveryEnv: Record<string, string>
@@ -60,7 +28,9 @@ export interface ServiceSpec {
 }
 
 export interface Config {
+  envAuthority: EnvAuthority
   groups: Record<string, string[]>
+  pool?: PoolSpec
   projectName?: string
   services: ServiceSpec[]
   source: 'anonymous' | 'file'
@@ -79,109 +49,6 @@ function formatZodIssues(error: z.ZodError): string {
       return `${path}: ${issue.message}`
     })
     .join('\n')
-}
-
-function collectPlaceholders(value: string): string[] {
-  const found: string[] = []
-  for (const match of value.matchAll(PLACEHOLDER_PATTERN)) {
-    found.push(match[1])
-  }
-  return found
-}
-
-interface CrossFieldContext {
-  errors: string[]
-  seen: Map<string, string>
-  serviceNames: Set<string>
-}
-
-function checkCrossFieldRules(raw: RawConfigFile): string[] {
-  const ctx: CrossFieldContext = {
-    errors: [],
-    seen: new Map<string, string>(),
-    serviceNames: new Set(Object.keys(raw.services)),
-  }
-  for (const [name, entry] of Object.entries(raw.services)) {
-    recordEnvVar(name, entry, ctx)
-    checkDiscoveryEnv(name, entry, ctx)
-  }
-  return ctx.errors
-}
-
-function recordEnvVar(
-  name: string,
-  entry: RawServiceEntry,
-  ctx: CrossFieldContext,
-): void {
-  const owner = `services.${name}.envVar`
-  if (entry.envVar.startsWith(RESERVED_ENV_PREFIX)) {
-    ctx.errors.push(
-      `${owner}: env var "${entry.envVar}" uses the reserved "${RESERVED_ENV_PREFIX}" prefix`,
-    )
-  }
-  const prior = ctx.seen.get(entry.envVar)
-  if (prior !== undefined) {
-    ctx.errors.push(
-      `${owner}: duplicate identifier "${entry.envVar}" already declared at ${prior}`,
-    )
-    return
-  }
-  ctx.seen.set(entry.envVar, owner)
-}
-
-function checkDiscoveryEnv(
-  name: string,
-  entry: RawServiceEntry,
-  ctx: CrossFieldContext,
-): void {
-  if (entry.discoveryEnv === undefined) {
-    return
-  }
-  for (const [envKey, template] of Object.entries(entry.discoveryEnv)) {
-    const owner = `services.${name}.discoveryEnv.${envKey}`
-    if (envKey.startsWith(RESERVED_ENV_PREFIX)) {
-      ctx.errors.push(
-        `${owner}: env var "${envKey}" uses the reserved "${RESERVED_ENV_PREFIX}" prefix`,
-      )
-    }
-    const prior = ctx.seen.get(envKey)
-    if (prior !== undefined) {
-      ctx.errors.push(
-        `${owner}: duplicate identifier "${envKey}" already declared at ${prior}`,
-      )
-    } else {
-      ctx.seen.set(envKey, owner)
-    }
-    for (const placeholder of collectPlaceholders(template)) {
-      checkPlaceholder(placeholder, owner, ctx)
-    }
-  }
-}
-
-function checkPlaceholder(
-  placeholder: string,
-  owner: string,
-  ctx: CrossFieldContext,
-): void {
-  // `${namespace}` is reserved (always the worktree namespace), so it validates
-  // regardless of whether a service named "namespace" exists (decision-log #37).
-  if (placeholder === RESERVED_NAMESPACE_TOKEN) {
-    return
-  }
-  if (placeholder.startsWith(PW_METADATA_PREFIX)) {
-    const field = placeholder.slice(PW_METADATA_PREFIX.length)
-    if (!(PW_METADATA_FIELDS as readonly string[]).includes(field)) {
-      ctx.errors.push(
-        `${owner}: template references unknown metadata field "${field}"`,
-      )
-    }
-    return
-  }
-  if (!ctx.serviceNames.has(placeholder)) {
-    ctx.errors.push(
-      `${owner}: template references unknown service "${placeholder}"`,
-    )
-  }
 }
 
 // SERVICE_NAME_PATTERN (^[a-z][a-z0-9-]*$) is load-bearing for stable service
@@ -208,7 +75,19 @@ function normalize(raw: RawConfigFile, ctx: NormalizationContext): Config {
   }
 
   return {
+    envAuthority: raw.envAuthority ?? ENV_AUTHORITY_DEFAULT,
     groups,
+    ...(raw.pool !== undefined
+      ? {
+          pool: {
+            basePort: raw.pool.basePort,
+            mode: raw.pool.mode,
+            primarySlot: raw.pool.primarySlot ?? 0,
+            slots: raw.pool.slots,
+            stride: raw.pool.stride,
+          },
+        }
+      : {}),
     ...(raw.projectName !== undefined ? { projectName: raw.projectName } : {}),
     services,
     source: ctx.source,
@@ -216,9 +95,29 @@ function normalize(raw: RawConfigFile, ctx: NormalizationContext): Config {
   }
 }
 
+// `preferred` has never been read by the allocator — schema/v1.json has always
+// described it as advisory. Slot mode is the real answer to "I need to know
+// which ports this can land on", so warn rather than silently accept, and keep
+// accepting it so an existing config does not start failing PW0102.
+function warnDeprecatedPreferred(
+  raw: RawConfigFile,
+  stderr: { write: (msg: string) => boolean },
+): void {
+  const named = Object.entries(raw.services)
+    .filter(([, entry]) => entry.preferred !== undefined)
+    .map(([name]) => name)
+  if (named.length === 0) {
+    return
+  }
+  stderr.write(
+    `[portweave] "preferred" is ignored and will be removed in 0.9 (set on: ${named.join(', ')}) — use "pool": { "mode": "slots", ... } for a deterministic, enumerable port set\n`,
+  )
+}
+
 export function validateAndNormalizeConfig(
   input: unknown,
   ctx: NormalizationContext,
+  stderr: { write: (msg: string) => boolean } = process.stderr,
 ): Result<Config, PortweaveError> {
   const parsed = configFileSchema.safeParse(input)
   if (!parsed.success) {
@@ -238,5 +137,6 @@ export function validateAndNormalizeConfig(
       ),
     )
   }
+  warnDeprecatedPreferred(parsed.data, stderr)
   return ok(normalize(parsed.data, ctx))
 }

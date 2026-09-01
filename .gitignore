@@ -27,3 +27,6 @@ reports/
 
 # TypeScript build info
 *.tsbuildinfo
+
+# npm pack output
+*.tgz

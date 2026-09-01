@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { allocate, MAX_PROBE_RETRIES } from '../allocate.ts'
+import type { PoolSpec } from '../../config/index.ts'
 import { PW_ERROR_CODES } from '../../errors.ts'
+import { MAIN_NAMESPACE } from '../../worktree/namespace.ts'
 import {
   addWorktreeDir,
   bindServerOnPort,
@@ -379,5 +381,236 @@ describe('allocate — offsetOverride plumbing', () => {
 describe('allocate — MAX_PROBE_RETRIES constant', () => {
   it('exports MAX_PROBE_RETRIES = 100', () => {
     expect(MAX_PROBE_RETRIES).toBe(100)
+  })
+})
+
+function slotPool(
+  basePort: number,
+  overrides: Partial<PoolSpec> = {},
+): PoolSpec {
+  return {
+    basePort,
+    mode: 'slots',
+    primarySlot: 0,
+    slots: 4,
+    stride: 10,
+    ...overrides,
+  }
+}
+
+function twoServiceSlotConfig(pool: PoolSpec) {
+  return makeAllocatorConfig(
+    [
+      { envVar: 'WEB_PORT', name: 'web' },
+      { envVar: 'API_PORT', name: 'api' },
+    ],
+    { pool },
+  )
+}
+
+describe('allocate — slot mode', () => {
+  it('pins the primary worktree to the primary slot', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const config = twoServiceSlotConfig(slotPool(41100))
+    const key = makeAllocationKey(wt, { namespace: MAIN_NAMESPACE })
+    const result = await allocate(key, config, env())
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value.allocation.ports).toStrictEqual({
+      api: 41101,
+      web: 41100,
+    })
+  })
+
+  it('gives a linked worktree the next slot, leaving the primary slot free', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const config = twoServiceSlotConfig(slotPool(41200))
+    const key = makeAllocationKey(wt, { namespace: 'feature-abc123' })
+    const result = await allocate(key, config, env())
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value.allocation.ports).toStrictEqual({
+      api: 41211,
+      web: 41210,
+    })
+  })
+
+  it('walks linked worktrees up the slots in stride steps', async () => {
+    const config = twoServiceSlotConfig(slotPool(41300))
+    const first = await allocate(
+      makeAllocationKey(await addWorktreeDir(dirs), { namespace: 'wt-one' }),
+      config,
+      env(),
+    )
+    const second = await allocate(
+      makeAllocationKey(await addWorktreeDir(dirs), { namespace: 'wt-two' }),
+      config,
+      env(),
+    )
+    expect(first.ok && second.ok).toBe(true)
+    if (!first.ok || !second.ok) {
+      return
+    }
+    expect(first.value.allocation.ports.web).toBe(41310)
+    expect(second.value.allocation.ports.web).toBe(41320)
+  })
+
+  it('retires a whole slot when one of its ports is externally bound', async () => {
+    // Occupy the second port of slot 1. First-fit would slide to 41411; slot
+    // mode must jump to the next slot base so the geometry stays predictable.
+    const squatter = await bindServerOnPort(41411)
+    try {
+      const config = twoServiceSlotConfig(slotPool(41400))
+      const result = await allocate(
+        makeAllocationKey(await addWorktreeDir(dirs), { namespace: 'wt-x' }),
+        config,
+        env(),
+      )
+      expect(result.ok).toBe(true)
+      if (!result.ok) {
+        return
+      }
+      expect(result.value.allocation.ports.web).toBe(41420)
+    } finally {
+      await squatter.close()
+    }
+  })
+})
+
+describe('allocate — slot mode failures', () => {
+  async function expectAllocationError(
+    pool: PoolSpec,
+    namespace: string,
+  ): Promise<string> {
+    const result = await allocate(
+      makeAllocationKey(await addWorktreeDir(dirs), { namespace }),
+      twoServiceSlotConfig(pool),
+      env(),
+    )
+    if (result.ok) {
+      throw new Error('expected allocation to fail')
+    }
+    return `${result.error.code} ${result.error.message}`
+  }
+
+  it('fails with ALLOCATION_PRIMARY_SLOT_BUSY when the pinned slot is taken', async () => {
+    const squatter = await bindServerOnPort(41501)
+    try {
+      const failure = await expectAllocationError(
+        slotPool(41500),
+        MAIN_NAMESPACE,
+      )
+      expect(failure).toContain(PW_ERROR_CODES.ALLOCATION_PRIMARY_SLOT_BUSY)
+      expect(failure).toContain('41500')
+    } finally {
+      await squatter.close()
+    }
+  })
+
+  it('fails with ALLOCATION_EXHAUSTED once every non-primary slot is claimed', async () => {
+    const pool = slotPool(41600, { slots: 2 })
+    const claimed = await allocate(
+      makeAllocationKey(await addWorktreeDir(dirs), { namespace: 'wt-a' }),
+      twoServiceSlotConfig(pool),
+      env(),
+    )
+    expect(claimed.ok).toBe(true)
+
+    const failure = await expectAllocationError(pool, 'wt-b')
+    expect(failure).toContain(PW_ERROR_CODES.ALLOCATION_EXHAUSTED)
+    expect(failure).toContain('pool.slots')
+  })
+
+  it('ignores PORTWEAVE_POOL_RANGE and says so', async () => {
+    const written: string[] = []
+    const stderr = {
+      write: (msg: string) => {
+        written.push(msg)
+        return true
+      },
+    }
+    const result = await allocate(
+      makeAllocationKey(await addWorktreeDir(dirs), {
+        namespace: MAIN_NAMESPACE,
+      }),
+      twoServiceSlotConfig(slotPool(41700)),
+      { ...env(), PORTWEAVE_POOL_RANGE: '50000-50100' },
+      stderr,
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value.allocation.ports.web).toBe(41700)
+    expect(written.join('')).toContain('PORTWEAVE_POOL_RANGE ignored')
+  })
+
+  it('leaves first-fit allocation untouched when no pool block is declared', async () => {
+    const result = await allocate(
+      makeAllocationKey(await addWorktreeDir(dirs), {
+        namespace: MAIN_NAMESPACE,
+      }),
+      makeAllocatorConfig([{ envVar: 'API_PORT', name: 'api' }]),
+      env(),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) {
+      return
+    }
+    expect(result.value.allocation.ports.api).toBeGreaterThanOrEqual(30000)
+    expect(result.value.allocation.ports.api).toBeLessThan(60000)
+  })
+})
+
+describe('allocate — slot mode reconciliation', () => {
+  it('re-rolls a cached block when the pool geometry moves', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const key = makeAllocationKey(wt, { namespace: 'wt-moved' })
+
+    const before = await allocate(
+      key,
+      twoServiceSlotConfig(slotPool(41800)),
+      env(),
+    )
+    expect(before.ok).toBe(true)
+    if (!before.ok) {
+      return
+    }
+    expect(before.value.allocation.ports.web).toBe(41810)
+
+    // Same worktree, same key — only basePort moved. Handing back 41810 would
+    // leave this worktree outside the newly declared set.
+    const after = await allocate(
+      key,
+      twoServiceSlotConfig(slotPool(41900)),
+      env(),
+    )
+    expect(after.ok).toBe(true)
+    if (!after.ok) {
+      return
+    }
+    expect(after.value.reused).toBe(false)
+    expect(after.value.allocation.ports.web).toBe(41910)
+  })
+
+  it('still reuses when the geometry is unchanged', async () => {
+    const wt = await addWorktreeDir(dirs)
+    const key = makeAllocationKey(wt, { namespace: 'wt-stable' })
+    const config = twoServiceSlotConfig(slotPool(42000))
+
+    const first = await allocate(key, config, env())
+    const second = await allocate(key, config, env())
+    expect(first.ok && second.ok).toBe(true)
+    if (!first.ok || !second.ok) {
+      return
+    }
+    expect(second.value.reused).toBe(true)
+    expect(second.value.allocation.ports).toStrictEqual(
+      first.value.allocation.ports,
+    )
   })
 })

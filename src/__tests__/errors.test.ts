@@ -52,6 +52,7 @@ describe('PW_ERROR_CODES', () => {
   it('contains the seed codes plus all component blocks with expected values', () => {
     expect(PW_ERROR_CODES).toStrictEqual({
       ALLOCATION_EXHAUSTED: 'PW0401',
+      ALLOCATION_PRIMARY_SLOT_BUSY: 'PW0402',
       CLI_CHILD_SPAWN_FAILED: 'PW0602',
       CLI_INVALID_FLAGS: 'PW0601',
       CLI_NO_ALLOCATION: 'PW0603',
@@ -79,6 +80,7 @@ describe('PW_ERROR_CODES', () => {
     const keys = Object.keys(PW_ERROR_CODES).sort()
     expect(keys).toStrictEqual([
       'ALLOCATION_EXHAUSTED',
+      'ALLOCATION_PRIMARY_SLOT_BUSY',
       'CLI_CHILD_SPAWN_FAILED',
       'CLI_INVALID_FLAGS',
       'CLI_NO_ALLOCATION',

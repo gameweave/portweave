@@ -1,6 +1,8 @@
 import { basename } from 'node:path'
 import type { Allocation } from '../allocator/allocate.ts'
 import type { Config } from '../config/index.ts'
+import { resolveRegistryPath } from '../registry/paths.ts'
+import type { AllocationKey } from '../worktree/key.ts'
 
 export interface BannerInput {
   allocation: Allocation
@@ -109,4 +111,19 @@ export function writeOut(
       }
     })
   })
+}
+
+export function buildVerboseLines(
+  config: Config,
+  key: AllocationKey,
+  env: NodeJS.ProcessEnv,
+): string[] {
+  const configLabel =
+    config.sourcePath ??
+    (config.source === 'anonymous' ? '<anonymous-mode>' : '<unknown>')
+  return [
+    `[portweave] config: ${configLabel}`,
+    `[portweave] registry: ${resolveRegistryPath(env).registryFile}`,
+    `[portweave] key: ${JSON.stringify({ gitCommonDir: key.gitCommonDir, namespace: key.namespace, worktreeRoot: key.worktreeRoot })}`,
+  ]
 }

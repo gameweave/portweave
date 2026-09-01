@@ -6,6 +6,7 @@ import { buildEnvMap } from '../build.ts'
 
 // DESIGN.md Appendix A config (normalized form)
 const appendixAConfig: Config = {
+  envAuthority: 'dotenv',
   groups: {
     dynamodb: ['dynamodb', 'dynamodb-admin'],
     kinesis: ['kinesis', 'kinesis-tls'],
@@ -132,6 +133,7 @@ describe('buildEnvMap', () => {
 
   it('resolves ${pw:*} placeholders inside discoveryEnv', () => {
     const config: Config = {
+      envAuthority: 'dotenv',
       groups: {},
       services: [
         {
@@ -152,6 +154,7 @@ describe('buildEnvMap', () => {
 
   it('resolves the reserved ${namespace} token inside discoveryEnv', () => {
     const config: Config = {
+      envAuthority: 'dotenv',
       groups: {},
       services: [
         {
@@ -178,6 +181,7 @@ describe('buildEnvMap', () => {
     }
 
     const simpleConfig: Config = {
+      envAuthority: 'dotenv',
       groups: {},
       services: [
         { discoveryEnv: {}, envVar: 'API_PORT', name: 'api' },
@@ -205,6 +209,7 @@ describe('buildEnvMap', () => {
 
   it('produces an empty map for a config with no discovery env', () => {
     const singleServiceConfig: Config = {
+      envAuthority: 'dotenv',
       groups: {},
       services: [{ discoveryEnv: {}, envVar: 'API_PORT', name: 'api' }],
       source: 'file',

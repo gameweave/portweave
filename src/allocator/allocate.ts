@@ -3,7 +3,13 @@ import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { err, ok, type Result } from '../result.ts'
 import { withRegistry, type WithRegistryHandle } from '../registry/storage.ts'
 import type { AllocationKey, RegistryEntry } from '../registry/types.ts'
-import { findFreeBlock, type PoolRange, resolvePoolRange } from './pool.ts'
+import {
+  entryFitsPlacement,
+  noCandidateError,
+  pickCandidate,
+  type Placement,
+  resolvePlacement,
+} from './placement.ts'
 import { probeBlock } from './probe.ts'
 
 // Allocation is the conceptual layer on top of a RegistryEntry — same shape,
@@ -56,7 +62,14 @@ function keysEqual(a: AllocationKey, b: AllocationKey): boolean {
   )
 }
 
-function buildPortsMap(
+/**
+ * Assign `candidate`, `candidate + 1`, ... across `orderedServices`.
+ *
+ * Exported because `portweave slots` enumerates every slot's ports for
+ * pre-registration and must agree with what the allocator will actually hand
+ * out — one definition of the service-to-offset mapping, not two.
+ */
+export function buildPortsMap(
   orderedServices: ServiceSpec[],
   candidate: number,
 ): Record<string, number> {
@@ -71,6 +84,7 @@ function tryReuseExisting(
   handle: WithRegistryHandle,
   key: AllocationKey,
   orderedServices: ServiceSpec[],
+  placement: Placement,
 ): AllocationResult | null {
   const existing = handle.entries.find((e) => keysEqual(e.key, key))
   if (existing === undefined) {
@@ -93,6 +107,15 @@ function tryReuseExisting(
   if (!coversConfig) {
     return null
   }
+  // The pool block is config too: if its geometry moved, a cached block can sit
+  // outside the declared slot set entirely. Re-roll rather than hand back ports
+  // nobody registered. See entryFitsPlacement.
+  const configuredPorts = orderedServices.map(
+    (service) => existing.ports[service.name],
+  )
+  if (!entryFitsPlacement(configuredPorts, placement)) {
+    return null
+  }
   // Reuse is unconditional: an existing entry for this key is returned as-is,
   // without probing its ports. A port bound by this allocation's own services
   // is the normal runtime state, not a conflict — and a loopback probe cannot
@@ -111,7 +134,7 @@ async function allocateFreshBlock(
   handle: WithRegistryHandle,
   key: AllocationKey,
   orderedServices: ServiceSpec[],
-  range: PoolRange,
+  placement: Placement,
 ): Promise<Result<AllocationResult, PortweaveError>> {
   const occupied = Array.from(
     new Set(handle.entries.flatMap((e) => Object.values(e.ports))),
@@ -123,14 +146,13 @@ async function allocateFreshBlock(
     const allOccupied = [...occupied, ...externallyOccupied].sort(
       (a, b) => a - b,
     )
-    const candidate = findFreeBlock(allOccupied, orderedServices.length, range)
+    const candidate = pickCandidate(
+      allOccupied,
+      orderedServices.length,
+      placement,
+    )
     if (candidate === null) {
-      return err(
-        new PortweaveError(
-          PW_ERROR_CODES.ALLOCATION_EXHAUSTED,
-          'Port pool exhausted: no contiguous block available in registry',
-        ),
-      )
+      return err(noCandidateError(placement))
     }
 
     const probeResult = await probeBlock(candidate, orderedServices.length)
@@ -146,7 +168,9 @@ async function allocateFreshBlock(
       return ok({ allocation: entry, reused: false })
     }
 
-    // A port in the candidate block is externally taken — skip past it
+    // A port in the candidate block is externally taken. In first-fit mode we
+    // skip past that one port; in slot mode `findFreeSlot` retires the whole
+    // slot, which is what keeps slot bases on the declared stride.
     externallyOccupied.push(probeResult.firstTakenPort)
   }
 
@@ -162,8 +186,9 @@ export async function allocate(
   key: AllocationKey,
   config: Config,
   env: NodeJS.ProcessEnv = process.env,
+  stderr: { write: (msg: string) => boolean } = process.stderr,
 ): Promise<Result<AllocationResult, PortweaveError>> {
-  const range = resolvePoolRange(env)
+  const placement = resolvePlacement(key, config, env, stderr)
   const orderedServices = orderServicesForAllocation(config)
 
   // Wrap the inner Result in a container so withRegistry<T> doesn't
@@ -171,11 +196,11 @@ export async function allocate(
   // the inner carries allocator-level errors.
   const outer = await withRegistry(
     async (handle): Promise<Result<AllocationResult, PortweaveError>> => {
-      const reused = tryReuseExisting(handle, key, orderedServices)
+      const reused = tryReuseExisting(handle, key, orderedServices, placement)
       if (reused !== null) {
         return ok(reused)
       }
-      return allocateFreshBlock(handle, key, orderedServices, range)
+      return allocateFreshBlock(handle, key, orderedServices, placement)
     },
     env,
   )

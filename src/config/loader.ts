@@ -8,6 +8,8 @@ const DEFAULT_CONFIG_FILENAME = 'portweave.config.json'
 
 export interface LoadConfigOptions {
   configPath?: string
+  /** Where advisory lines (e.g. the `preferred` deprecation) go. Defaults to process.stderr. */
+  stderr?: { write: (msg: string) => boolean }
 }
 
 function resolveConfigPath(
@@ -88,8 +90,12 @@ export async function loadConfig(
   if (!parsed.ok) {
     return parsed
   }
-  return validateAndNormalizeConfig(parsed.value, {
-    source: 'file',
-    sourcePath: absolutePath,
-  })
+  return validateAndNormalizeConfig(
+    parsed.value,
+    {
+      source: 'file',
+      sourcePath: absolutePath,
+    },
+    opts?.stderr ?? process.stderr,
+  )
 }

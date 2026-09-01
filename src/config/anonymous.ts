@@ -1,6 +1,10 @@
 import { PortweaveError, PW_ERROR_CODES } from '../errors.ts'
 import { err, ok, type Result } from '../result.ts'
-import type { Config, ServiceSpec } from './schema.ts'
+import {
+  type Config,
+  ENV_AUTHORITY_DEFAULT,
+  type ServiceSpec,
+} from './schema.ts'
 
 const ANONYMOUS_COUNT_MIN = 1
 const ANONYMOUS_COUNT_MAX = 100
@@ -28,5 +32,10 @@ export function synthesizeAnonymousConfig(
       name: `port-${String(i)}`,
     })
   }
-  return ok({ groups: {}, services, source: 'anonymous' })
+  return ok({
+    envAuthority: ENV_AUTHORITY_DEFAULT,
+    groups: {},
+    services,
+    source: 'anonymous',
+  })
 }
