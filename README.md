@@ -50,7 +50,9 @@ get conflict-free, sticky ports per git worktree.
    at the top level — otherwise `.env` overrides the allocation and nothing
    changes. An explicit `VAR=… <command>` in the shell still wins either way.
 5. Check whether any port must be registered somewhere OUTSIDE this machine —
-   an OAuth redirect URI (Auth0, Google, GitHub), a webhook URL. If so, add a
+   an identity provider's redirect/callback allow-list (Auth0, Supabase,
+   Google, GitHub, Clerk, Okta), a webhook destination (Stripe, SendGrid), or
+   any allow-list held in a remote dashboard rather than your repo. If so, add a
    `pool` block so the candidate ports are a finite, listable set:
        "pool": { "mode": "slots", "basePort": 3000, "stride": 10, "slots": 10 }
    Pick `basePort` so slot 0 equals the ports the project already uses, and
@@ -101,7 +103,9 @@ pnpm add -D portweave
 yarn add -D portweave
 ```
 
-Portweave is a dev dependency. Invoke it with `npx portweave …` or from a `package.json` script — there is no global install and no `portweave init`. Requires Node.js 24 or newer.
+Portweave is a dev dependency. Invoke it with `npx portweave …` or from a `package.json` script — there is no global install and no `portweave init`.
+
+**Node version.** `engines` declares `^24.13.0`, i.e. `>=24.13.0 <25.0.0`. That is the supported and CI-exercised configuration. pnpm and npm only _warn_ on an engine mismatch by default, so a project pinning an older Node (a `.nvmrc` of `20`, say) will install Portweave without complaint — worth checking if a wrapped script behaves oddly.
 
 **Supported platforms:** macOS and Linux, both exercised by CI on every change. Windows is not supported at this time.
 
@@ -236,7 +240,22 @@ This is the primitive for keeping worktrees from colliding in shared, single-ins
 
 ### Fixed slots: when ports must be pre-registered
 
-By default Portweave picks the first free block in a wide pool, so a worktree's ports are stable but not predictable _before_ it first runs. That is a problem whenever something outside your machine has to know the port in advance — an OAuth provider's redirect-URI allow-list is the common case, and none of them will wildcard a localhost port.
+By default Portweave picks the first free block in a wide pool, so a worktree's ports are stable but not predictable _before_ it first runs. That is a problem whenever something **outside your machine** has to be told the port in advance, and the list of such things is longer than it first looks:
+
+| Where the port gets registered                         | Examples                                                                                                                                |
+| ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Identity-provider redirect / callback allow-lists      | Auth0 Allowed Callback URLs, Supabase Redirect URLs, Google Cloud OAuth redirect URIs, GitHub OAuth callback URL, Clerk, Okta, Keycloak |
+| Webhook destinations pointed at a tunnel or local host | Stripe, GitHub, SendGrid, Twilio                                                                                                        |
+| CORS / allowed-origin lists held in a remote config    | anything reading an allow-list from a dashboard rather than your repo                                                                   |
+| Anything an operator typed into a UI once              | it will not be updated when your port changes                                                                                           |
+
+Some of these accept patterns and some do not, so check before you enumerate:
+
+- **Auth0** does not wildcard at all — every URL must be listed literally.
+- **Supabase** Redirect URLs accept glob patterns, where `*` matches any run of non-separator characters and the separators are `.` and `/`. Whether a single `*` can span the port is not spelled out in the docs; Supabase ships a [pattern tester](https://supabase.com/docs/guides/auth/redirect-urls), so verify rather than assume. Enumerating the slots works either way.
+- **Google Cloud** requires an exact, byte-for-byte redirect URI.
+
+Slot mode makes the candidate set finite and enumerable. Slot `i` spans `[basePort + i*stride, basePort + i*stride + serviceCount - 1]`:
 
 Slot mode makes the candidate set finite and enumerable. Slot `i` spans `[basePort + i*stride, basePort + i*stride + serviceCount - 1]`:
 
@@ -435,10 +454,26 @@ http://localhost:3000/auth/callback
 http://localhost:3010/auth/callback
 http://localhost:3020/auth/callback
 
-# register every candidate with an OAuth provider in one shot
-$ auth0 apps update "$CLIENT_ID" \
-    --callbacks "$(portweave slots --template 'http://localhost:${web}/auth/callback' | paste -sd,)"
+# Whatever holds the allow-list, the shape is the same: enumerate, join, send.
+# Auth0 (comma-separated; note `apps update` REPLACES the list, it does not append):
+$ portweave slots --template 'http://localhost:${web}/auth/callback' > /tmp/cb
+$ auth0 apps update "$CLIENT_ID" --callbacks "$(paste -sd, /tmp/cb)"
+
+# Supabase, local stack — config.toml supports env() interpolation, so a single
+# service URL can come straight from discoveryEnv (run `supabase start` under
+# `portweave run`, or source .portweave/current.env first):
+#   [auth]
+#   site_url = "env(APP_URL)"
+#
+# Supabase, hosted project — the Redirect URLs list is glob-matched, so try one
+# pattern first and fall back to the enumerated set if it does not match:
+$ supabase --project-ref "$REF" ... # or paste the list from `portweave slots`
+
+# Anything else: --json gives you the geometry to build any payload shape.
+$ portweave slots --json | jq -r '.slots[].ports.web'
 ```
+
+A guard worth copying: several provider CLIs **replace** an allow-list rather than appending to it, so an empty enumeration silently wipes it. Check the output is non-empty before sending, and do not discard stderr while doing so — you will need it the first time this fails.
 
 Templates use the same evaluator as `discoveryEnv`, so `${pw:<field>}` and the reserved `${namespace}` token work here too. `--json` emits the pool geometry plus per-slot `ports` and `rendered` maps.
 
@@ -735,6 +770,8 @@ Errors carry a stable `PW####` code, printed as `[portweave] error: <message> (<
 | `PW0601` | Invalid CLI flags (e.g. `--config` with `--count`, or no command after `--`). | Correct the invocation.                                                                                                                                                      |
 | `PW0602` | The command after `--` could not be spawned (exit `127`).                     | Check the command exists and is on `PATH`.                                                                                                                                   |
 | `PW0701` | The runtime API found no config and was given no `count`.                     | Pass `{ count }`, `{ configPath }`, or add a `portweave.config.json`.                                                                                                        |
+
+**A command produced no output at all and exited 0.** That is not a normal state — every path either prints or errors. Before 0.8.1 the CLI's entry-point check relied on `import.meta.main`, which only exists on Node 24.2+; on anything older `main()` never ran, so every command exited 0 silently and `portweave run -- <cmd>` returned success without starting `<cmd>`. Upgrade to 0.8.1 or later, which detects the entry point without it. If you see this on a current version, it is a bug worth reporting — silence is never intended.
 
 Add `--verbose` to any `portweave run` invocation to print the resolved config path, registry path, and allocation key alongside the error.
 
