@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { fileURLToPath } from 'node:url'
 import { Command } from 'commander'
 import { PortweaveError } from './errors.ts'
 import { registerPanelCommand } from './cli/panel.ts'
@@ -64,17 +66,45 @@ export async function main(
   }
 }
 
-// Entry point when run as a script.
-//
-// `import.meta.main` (Node 24+) is true only when this module is the process
-// entry. The previous check compared `import.meta.url` to `file://${argv[1]}`,
-// which silently failed whenever cli.js was reached through a symlink — the
-// standard npm bin link (node_modules/.bin/portweave -> dist/cli.js), a global
-// install, or a symlinked path (e.g. macOS /tmp -> /private/tmp). import.meta.url
-// is the realpath while argv[1] is the unresolved invocation path, so they never
-// matched and main() never ran: `portweave run` exited 0 with no output. The
-// symlink case is covered by src/__tests__/cli.test.ts.
-if (import.meta.main) {
+/**
+ * Is this module the process entry point?
+ *
+ * `import.meta.main` is the clean answer but only exists on Node 24.2+. On an
+ * older runtime it is `undefined`, so a bare `if (import.meta.main)` skipped
+ * `main()` and **every command exited 0 with no output at all** — identical to
+ * success from a caller's point of view. That is the same failure class as the
+ * symlink bug this guard already had to fix once, and it cost a consumer a long
+ * debugging session: a wrapper script captured empty stdout with exit 0 and had
+ * no way to tell that portweave had simply never run.
+ *
+ * The fallback compares realpaths rather than sniffing a version, because the
+ * hazard it has to survive is the symlink case: `import.meta.url` is already
+ * resolved, while `argv[1]` is the unresolved invocation path — the standard npm
+ * bin link (`node_modules/.bin/portweave` -> `dist/cli.js`), a global install,
+ * or a symlinked prefix such as macOS `/tmp` -> `/private/tmp`. Comparing the
+ * two directly (the original bug) never matched. Both cases are covered by
+ * src/__tests__/cli.test.ts.
+ */
+export function isProcessEntry(
+  metaMain: boolean | undefined,
+  metaUrl: string,
+  argv1: string | undefined,
+): boolean {
+  if (typeof metaMain === 'boolean') {
+    return metaMain
+  }
+  if (argv1 === undefined) {
+    return false
+  }
+  try {
+    return realpathSync(argv1) === fileURLToPath(metaUrl)
+  } catch {
+    // argv[1] may not exist on disk (an eval/-e invocation); not the entry.
+    return false
+  }
+}
+
+if (isProcessEntry(import.meta.main, import.meta.url, process.argv[1])) {
   void main().then((code) => {
     process.exit(code)
   })
