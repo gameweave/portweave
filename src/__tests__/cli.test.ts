@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { isProcessEntry } from '../cli.ts'
 
 // End-to-end test of the built CLI's process entry point.
 //
@@ -103,5 +104,46 @@ describe.skipIf(skipOnWindows)('built CLI entry point (subprocess)', () => {
     const res = runViaSymlink([process.execPath, '-e', 'process.exit(7)'])
     // Proves main() ran end to end through the symlink, not just that it printed.
     expect(res.status).toBe(7)
+  })
+})
+
+describe('isProcessEntry', () => {
+  it('trusts import.meta.main when the runtime provides it', () => {
+    expect(isProcessEntry(true, 'file:///anything.js', '/other.js')).toBe(true)
+    expect(isProcessEntry(false, 'file:///anything.js', '/other.js')).toBe(
+      false,
+    )
+  })
+
+  it('falls back to a realpath comparison when import.meta.main is undefined', () => {
+    // Node < 24.2 has no import.meta.main. Without this fallback main() never
+    // ran and every command exited 0 with no output.
+    const self = fileURLToPath(import.meta.url)
+    expect(isProcessEntry(undefined, import.meta.url, self)).toBe(true)
+  })
+
+  it('resolves a symlinked argv[1] to the same realpath', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'pw-entry-'))
+    try {
+      const self = fileURLToPath(import.meta.url)
+      const link = join(dir, 'linked-entry.ts')
+      symlinkSync(self, link)
+      expect(isProcessEntry(undefined, import.meta.url, link)).toBe(true)
+    } finally {
+      rmSync(dir, { force: true, recursive: true })
+    }
+  })
+
+  it('is false for an unrelated argv[1], and for none at all', () => {
+    expect(
+      isProcessEntry(undefined, import.meta.url, '/definitely/other.js'),
+    ).toBe(false)
+    expect(isProcessEntry(undefined, import.meta.url, undefined)).toBe(false)
+  })
+
+  it('is false rather than throwing when argv[1] does not exist on disk', () => {
+    expect(
+      isProcessEntry(undefined, import.meta.url, '/no/such/path/anywhere.js'),
+    ).toBe(false)
   })
 })
