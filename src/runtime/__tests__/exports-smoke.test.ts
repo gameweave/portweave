@@ -10,6 +10,7 @@
  * Gate via RUN_SMOKE_TESTS=1 per the spec's Open Questions §1 recommendation.
  */
 import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
@@ -37,9 +38,6 @@ const TSC_BIN = join(
   'tsc',
 )
 
-// Build tsconfig path — uses the emit-capable tsconfig.build.json
-const BUILD_TSCONFIG = join(REPO_ROOT, 'tsconfig.build.json')
-
 let consumerDir = ''
 
 beforeAll(async () => {
@@ -47,10 +45,25 @@ beforeAll(async () => {
     return
   }
 
-  // 1. Build the package (requires tsconfig.build.json to exist)
-  await execFileAsync('npx', ['tsc', '--build', BUILD_TSCONFIG], {
-    cwd: REPO_ROOT,
-  })
+  // 1. Use the dist/ that `pretest` already built — do NOT rebuild here.
+  //
+  // This used to run `tsc --build`, which rewrote dist/ *during* the test run
+  // while `src/__tests__/cli.test.ts` was spawning dist/cli.js in a parallel
+  // worker. The child then loaded a half-written module and died with
+  // "does not provide an export named 'startPanelServer'", or `npm pack` read a
+  // truncated .js.map and died with "encountered unexpected EOF". Both looked
+  // like flakes; both were this race, and one of them failed a release.
+  //
+  // Packing what pretest built is also closer to what actually ships, since
+  // `npm publish` builds via prepublishOnly and then packs that output.
+  const builtEntry = join(REPO_ROOT, 'dist', 'cli.js')
+  if (!existsSync(builtEntry)) {
+    throw new Error(
+      `smoke test needs a built dist/ (missing ${builtEntry}). ` +
+        'It normally comes from `pretest`; run `npm run build` first if you ' +
+        'invoked this file directly.',
+    )
+  }
 
   // 2. Pack the package
   const packDir = await makeTmpSmokeDir('pack')
