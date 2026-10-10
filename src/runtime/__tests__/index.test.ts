@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { realpathSync, rmSync } from 'node:fs'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -23,12 +23,7 @@ const VALID_CONFIG = JSON.stringify({
 })
 
 async function makeTmpDir(label: string): Promise<string> {
-  const dir = join(
-    tmpdir(),
-    `portweave-runtime-test-${label}-${process.pid.toString()}-${Date.now().toString()}`,
-  )
-  await mkdir(dir, { recursive: true })
-  return dir
+  return mkdtemp(join(tmpdir(), `portweave-runtime-test-${label}-`))
 }
 
 async function makeFixtureProject(label: string): Promise<string> {

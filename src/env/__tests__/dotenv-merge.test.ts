@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -7,8 +7,8 @@ import { applyDotenvOverrides, readDotenvFile } from '../dotenv-merge.ts'
 
 async function writeTmp(content: string): Promise<string> {
   const path = join(
-    tmpdir(),
-    `portweave-test-${process.pid.toString()}-${Date.now().toString()}.env`,
+    await mkdtemp(join(tmpdir(), 'portweave-dotenv-test-')),
+    '.env',
   )
   await writeFile(path, content, 'utf-8')
   return path

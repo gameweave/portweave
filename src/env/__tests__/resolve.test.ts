@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -7,12 +7,7 @@ import type { Config } from '../../config/index.ts'
 import { computeEnvMap, resolveEnv } from '../resolve.ts'
 
 async function makeTmpDir(): Promise<string> {
-  const dir = join(
-    tmpdir(),
-    `portweave-resolve-test-${process.pid.toString()}-${Date.now().toString()}`,
-  )
-  await mkdir(dir, { recursive: true })
-  return dir
+  return mkdtemp(join(tmpdir(), 'portweave-resolve-test-'))
 }
 
 // Minimal config: api service with envVar=API_PORT and a discovery URL

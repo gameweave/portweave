@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -9,12 +9,7 @@ import { setupScopedXdg } from './_helpers.ts'
 setupScopedXdg()
 
 async function makeTmpDir(label: string): Promise<string> {
-  const dir = join(
-    tmpdir(),
-    `portweave-errpass-test-${label}-${process.pid.toString()}-${Date.now().toString()}`,
-  )
-  await mkdir(dir, { recursive: true })
-  return dir
+  return mkdtemp(join(tmpdir(), `portweave-errpass-test-${label}-`))
 }
 
 describe('PW0101 — CONFIG_MISSING passthrough', () => {
