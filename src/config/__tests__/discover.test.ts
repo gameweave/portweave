@@ -1,4 +1,4 @@
-import { chmod, mkdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -9,12 +9,7 @@ import { findConfigUpward } from '../discover.ts'
 setupScopedXdg()
 
 async function makeTmpDir(label: string): Promise<string> {
-  const dir = join(
-    tmpdir(),
-    `portweave-upwalk-test-${label}-${process.pid.toString()}-${Date.now().toString()}`,
-  )
-  await mkdir(dir, { recursive: true })
-  return dir
+  return mkdtemp(join(tmpdir(), `portweave-upwalk-test-${label}-`))
 }
 
 const VALID_CONFIG = JSON.stringify({

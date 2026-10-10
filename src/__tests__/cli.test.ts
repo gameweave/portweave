@@ -36,18 +36,20 @@ const builtCli = join(repoRoot, 'dist', 'cli.js')
 let workDir = ''
 
 beforeAll(() => {
-  // Build into the real dist/ (not a throwaway dir): cli.js does
-  // require('../package.json'), which only resolves when emitted under dist/.
-  const tsc = join(repoRoot, 'node_modules', 'typescript', 'bin', 'tsc')
-  execFileSync(process.execPath, [tsc, '--project', 'tsconfig.build.json'], {
-    cwd: repoRoot,
-    stdio: 'pipe',
-  })
+  // This used to run `tsc` into dist/ itself, which rewrote dist/ *during* the
+  // test run while the parity suite spawned dist/cli.js in a parallel worker:
+  // the child loaded a half-written module ("does not provide an export named
+  // 'HEADER_CONTENT_TYPE'"). The same race exports-smoke.test.ts had (decision
+  // log #63). `pretest` has already built dist/, so test what it built.
   if (!existsSync(builtCli)) {
-    throw new Error(`build did not produce ${builtCli}`)
+    throw new Error(
+      `cli e2e tests need a built dist/ (missing ${builtCli}). ` +
+        'It normally comes from `pretest`; run `npm run build` first if you ' +
+        'invoked this file directly.',
+    )
   }
   workDir = mkdtempSync(join(tmpdir(), 'portweave-cli-e2e-'))
-}, 60_000)
+})
 
 afterAll(() => {
   if (workDir) {

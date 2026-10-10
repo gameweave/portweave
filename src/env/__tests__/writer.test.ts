@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -9,12 +9,7 @@ import {
 } from '../writer.ts'
 
 async function makeTmpDir(): Promise<string> {
-  const dir = join(
-    tmpdir(),
-    `portweave-writer-test-${process.pid.toString()}-${Date.now().toString()}`,
-  )
-  await mkdir(dir, { recursive: true })
-  return dir
+  return mkdtemp(join(tmpdir(), 'portweave-writer-test-'))
 }
 
 describe('ensurePortweaveDir', () => {
