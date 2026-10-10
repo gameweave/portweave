@@ -52,6 +52,44 @@ describe('deriveNamespace', () => {
     expect(withSlash).toBe(withoutSlash)
   })
 
+  it('caps a long worktree name so the whole namespace stays within 40 characters', () => {
+    // The 2026-10-05 report: a 34-character slug plus `-<hash>` came to 43.
+    const root = '/tmp/wt/service-worker-registry-cdn-68f199'
+    const out = deriveNamespace(root, '/tmp/main')
+    expect(out).toBe(`service-worker-registry-cdn-68f-${sha1First8(root)}`)
+    expect(out).toHaveLength(40)
+  })
+
+  it('leaves a worktree name that already fits untouched', () => {
+    const root = `/tmp/wt/${'a'.repeat(31)}`
+    expect(deriveNamespace(root, '/tmp/main')).toBe(
+      `${'a'.repeat(31)}-${sha1First8(root)}`,
+    )
+  })
+
+  it('drops a dash the slug cap would leave dangling before the hash', () => {
+    // The cap falls right after the dash at index 30.
+    const root = `/tmp/wt/${'a'.repeat(30)}-bbbbbbbbbb`
+    expect(deriveNamespace(root, '/tmp/main')).toBe(
+      `${'a'.repeat(30)}-${sha1First8(root)}`,
+    )
+  })
+
+  it.each([
+    ['/tmp/wt/service-worker-registry-cdn-68f199'],
+    [`/tmp/wt/${'x'.repeat(30)}-y-z`],
+    [`/tmp/wt/${'Long_Worktree Name '.repeat(5)}`],
+    ['/tmp/wt/short'],
+  ])(
+    'derives a namespace that survives a round trip through sanitizeNamespace (%s)',
+    (root) => {
+      // `portweave run` hands this value to its child as PORTWEAVE_NAMESPACE,
+      // and the child reads it back through sanitizeNamespace.
+      const derived = deriveNamespace(root, '/tmp/main')
+      expect(sanitizeNamespace(derived)).toBe(derived)
+    },
+  )
+
   it('normalizes both paths before comparing for the main short-circuit', () => {
     expect(deriveNamespace('/tmp/foo/', '/tmp/foo')).toBe(MAIN_NAMESPACE)
     expect(deriveNamespace('/tmp/foo/./.', '/tmp/foo')).toBe(MAIN_NAMESPACE)
@@ -78,12 +116,39 @@ describe('sanitizeNamespace', () => {
   it('strips leading and trailing dashes', () => {
     expect(sanitizeNamespace('---feature-x---')).toBe('feature-x')
   })
+
+  it('does not leave a trailing dash where truncation lands after one', () => {
+    expect(sanitizeNamespace(`${'a'.repeat(39)}-bbb`)).toBe('a'.repeat(39))
+  })
+
+  it.each([
+    [`${'a'.repeat(39)}-bbb`],
+    ['Foo Bar!'],
+    ['Mixed_Case Name '.repeat(6)],
+    ['service-worker-registry-cdn-68f199-d19cbe87'],
+  ])('is idempotent for %s', (value) => {
+    const once = sanitizeNamespace(value)
+    expect(sanitizeNamespace(once)).toBe(once)
+  })
+
+  it('truncates to an explicit maxLength', () => {
+    expect(sanitizeNamespace('abcdef', 3)).toBe('abc')
+  })
 })
 
 describe('namespaceOverride', () => {
   it('returns the sanitized value when PORTWEAVE_NAMESPACE is set', () => {
     vi.stubEnv('PORTWEAVE_NAMESPACE', 'Foo Bar!')
     expect(namespaceOverride()).toBe('foo-bar')
+  })
+
+  it('returns a derived namespace unchanged, so a child resolves its parent', () => {
+    const derived = deriveNamespace(
+      '/tmp/wt/service-worker-registry-cdn-68f199',
+      '/tmp/main',
+    )
+    vi.stubEnv('PORTWEAVE_NAMESPACE', derived)
+    expect(namespaceOverride()).toBe(derived)
   })
 
   it('returns null when unset', () => {
