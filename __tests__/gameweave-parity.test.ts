@@ -1113,6 +1113,61 @@ async function testCwdStabilitySubdir(fx: TestFixture): Promise<void> {
   }
 }
 
+async function testLongWorktreeReentry(fx: TestFixture): Promise<void> {
+  // A child of `portweave run` that re-enters Portweave (a dev server's config
+  // calling the runtime) inherits PORTWEAVE_NAMESPACE and reads it back through
+  // sanitizeNamespace. A long worktree name once derived a 43-character
+  // namespace that the child truncated to 40, so the child got a second
+  // allocation and the parent and child disagreed on every port.
+  const env = makeEnv(fx.xdgConfigHome)
+  await gitExec(['branch', 'long-name'], fx.mainDir)
+  const longDir = path.join(fx.tmpDir, 'service-worker-registry-cdn-68f199')
+  await gitExec(['worktree', 'add', longDir, 'long-name'], fx.mainDir)
+  fs.copyFileSync(
+    path.join(fx.mainDir, 'portweave.config.json'),
+    path.join(longDir, 'portweave.config.json'),
+  )
+
+  const consumerPath = path.join(fx.tmpDir, 'reenter-runtime.mjs')
+  fs.writeFileSync(
+    consumerPath,
+    [
+      `import { namespace, ports } from '${resolveRuntimeIndexPath()}'`,
+      `const ns = await namespace()`,
+      `const result = await ports()`,
+      `if (!ns.ok || !result.ok) { process.stderr.write('runtime failed\\n'); process.exit(1); }`,
+      `console.log(JSON.stringify({ injected: process.env.PORTWEAVE_NAMESPACE, namespace: ns.value, ports: result.value }))`,
+    ].join('\n'),
+    'utf8',
+  )
+
+  const result = await runCli(['run', '--', process.execPath, consumerPath], {
+    cwd: longDir,
+    env,
+  })
+  expect(result.exitCode, `nested run failed: ${result.stderr}`).toBe(0)
+  const child = JSON.parse(result.stdout.trim()) as {
+    injected: string
+    namespace: string
+    ports: Record<string, number>
+  }
+  const show = await showJson(longDir, fx.xdgConfigHome)
+
+  expect(show.namespace.length).toBeLessThanOrEqual(40)
+  expect(child.injected).toBe(show.namespace)
+  expect(child.namespace).toBe(show.namespace)
+  expect(child.ports).toEqual(show.ports)
+
+  const registryPath = path.join(fx.xdgConfigHome, 'portweave', 'registry.json')
+  const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8')) as {
+    entries: { key: { worktreeRoot: string } }[]
+  }
+  const longEntries = registry.entries.filter(
+    (e) => e.key.worktreeRoot === longDir,
+  )
+  expect(longEntries, 'parent and child allocated separately').toHaveLength(1)
+}
+
 // ---------------------------------------------------------------------------
 // Guard: dist/cli.js must exist
 // ---------------------------------------------------------------------------
@@ -1192,6 +1247,9 @@ describe('Gameweave parity — §7.2 acceptance gate', { timeout: 60000 }, () =>
   })
   it('Cwd-stability: runtime ports() from a workspace subdir matches the root allocation', async () => {
     await testCwdStabilitySubdir(await buildFixture())
+  })
+  it('Long worktree name: a run child re-entering the runtime resolves the same block', async () => {
+    await testLongWorktreeReentry(await buildFixture())
   })
   it('Anonymous mode: --count 8 produces a valid 8-port allocation', async () => {
     await testAnonymousMode(await buildFixture())

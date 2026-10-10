@@ -8,7 +8,12 @@ export const MAIN_NAMESPACE = 'main'
 
 const DECIMAL_RADIX = 10
 const HASH_LENGTH = 8
-const MAX_SLUG_LENGTH = 40
+const MAX_NAMESPACE_LENGTH = 40
+// A derived namespace is `<slug>-<hash>`, so the slug gets what is left of the
+// namespace budget after the dash and the hash. Capping the slug (rather than
+// the joined string) keeps every derived namespace within MAX_NAMESPACE_LENGTH,
+// which is what lets it survive a round trip through PORTWEAVE_NAMESPACE.
+const MAX_DERIVED_SLUG_LENGTH = MAX_NAMESPACE_LENGTH - HASH_LENGTH - 1
 const NAMESPACE_ENV = 'PORTWEAVE_NAMESPACE'
 const OFFSET_ENV = 'PORTWEAVE_OFFSET'
 
@@ -22,7 +27,7 @@ export function deriveNamespace(currentRoot: string, mainRoot: string): string {
     return MAIN_NAMESPACE
   }
 
-  const slug = sanitizeNamespace(basename(normalized))
+  const slug = sanitizeNamespace(basename(normalized), MAX_DERIVED_SLUG_LENGTH)
   return `${slug}-${hashPath(normalized)}`
 }
 
@@ -63,17 +68,35 @@ export function parseExplicitOffset(): Result<null | number, PortweaveError> {
   return ok(offset)
 }
 
-export function sanitizeNamespace(value: string): string {
+/**
+ * Normalize `value` to a namespace slug of at most `maxLength` characters.
+ *
+ * Idempotent: `sanitizeNamespace(sanitizeNamespace(x)) === sanitizeNamespace(x)`.
+ * `portweave run` hands the namespace it allocated under to its child as
+ * `PORTWEAVE_NAMESPACE`, and a child that re-enters Portweave (the runtime API
+ * from a dev server's config, a nested `portweave run`) reads it back through
+ * `namespaceOverride()` → this function. Any value this function or
+ * `deriveNamespace` emits must therefore come back unchanged, or the child
+ * resolves a different namespace and gets a second allocation. Hence the
+ * dashes are stripped again after truncation: a cut landing just after a dash
+ * would otherwise leave a trailing dash that the next pass removes.
+ */
+export function sanitizeNamespace(
+  value: string,
+  maxLength: number = MAX_NAMESPACE_LENGTH,
+): string {
   const slug = value
     .toLowerCase()
     .replace(NON_SLUG_CHARS, '-')
+    .replace(SURROUNDING_DASHES, '')
+    .slice(0, maxLength)
     .replace(SURROUNDING_DASHES, '')
 
   if (slug.length === 0) {
     return MAIN_NAMESPACE
   }
 
-  return slug.slice(0, MAX_SLUG_LENGTH)
+  return slug
 }
 
 function hashPath(path: string): string {
