@@ -56,6 +56,12 @@ npm run dev-workflow
 
 This is the gate before pushing code. It runs all quality checks CI enforces. See [.claude/rules/ai-dev-workflow.md](.claude/rules/ai-dev-workflow.md) for the full step list and growth path.
 
+## Releasing
+
+Bump `version` in `package.json` (`npm version <x.y.z> --no-git-tag-version`, which also updates the lockfile) in the PR that should ship it. Once it merges and CI is green on `main`, `.github/workflows/release.yml` publishes that version to npm (Trusted Publishing, no token) and creates the `v<version>` GitHub Release with generated notes. Edit the notes afterwards if they need prose.
+
+The workflow keys on "is this version on npm yet / does its Release exist", not on which commit changed the version, so a cancelled or failed run is picked up by the next green run on `main`. To retry without a new commit, run the Release workflow manually from `main` (Actions → Release → Run workflow); it refuses any commit CI has not passed. Do not create Releases by hand. Decision log row 66.
+
 ## Repository layout
 
 - `src/` — Library + CLI source. Implementation lands as features are specified under `.ai/specs/`.

@@ -1,41 +1,166 @@
 name: Release
 
-# Publishes to npm when a GitHub Release is published. Create the release from a
-# green commit on main (tag e.g. v0.3.2). The job re-runs the full quality gate
-# before publishing, so a red build can never ship.
+# Releases on a version bump. Bump `version` in package.json, merge to main,
+# and once CI is green on that commit this workflow publishes it to npm and
+# cuts the matching `v<version>` GitHub Release. Nobody creates a Release by
+# hand any more.
 #
-# Auth is npm Trusted Publishing (OIDC) — there is no NPM_TOKEN. The repo is
-# registered as a trusted publisher for this package, and the package's
-# "Publishing access" is set to require 2FA and disallow tokens, so only this
-# OIDC-authenticated workflow can publish. Requires npm >= 11.5.1 (provided by
-# the Node 24 toolchain) and provenance is emitted automatically.
+# The trigger is "this version is not published yet", NOT "this commit changed
+# the version". Diffing HEAD against HEAD~1 ties a release to one commit's CI
+# run reaching success, and a run that never gets there (cancelled from the
+# queue by a later push, say) loses the release for good: every later commit
+# sees its parent already carrying the new version. Gameweave lost
+# `gameweave-v0.4.1` exactly that way. Asking npm and GitHub whether the
+# version exists is idempotent: whichever green run on main comes next does
+# the release, and every later run is a no-op.
+#
+# npm and the GitHub Release are checked separately, so a run that publishes
+# and then fails to create the Release is completed by the next run without
+# publishing twice. The Release is only cut after npm has the version.
+#
+# Auth is npm Trusted Publishing (OIDC): there is no NPM_TOKEN. npm binds the
+# trusted publisher to this repo and this file name, so keep it `release.yml`.
+# Requires npm >= 11.5.1 (the Node 24 toolchain); provenance is automatic.
+#
+# The Release is created with GITHUB_TOKEN. Events made with that token do not
+# start other workflows, which is fine: nothing listens for `release` any more.
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  # Retry path. Only acts on main, and only on a commit CI passed.
+  workflow_dispatch:
 
-# id-token: write lets npm attach build provenance (a signed, verifiable link
-# from the published tarball back to this workflow run) via OIDC.
 permissions:
   contents: read
-  id-token: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
 
 jobs:
-  publish:
+  detect:
+    if: >-
+      (github.event_name == 'workflow_dispatch' &&
+       github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      publish: ${{ steps.detect.outputs.publish }}
+      release: ${{ steps.detect.outputs.release }}
+      sha: ${{ steps.detect.outputs.sha }}
+      version: ${{ steps.detect.outputs.version }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version-file: .nvmrc
+      - id: detect
+        name: Detect unreleased version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          NAME=$(node -p "require('./package.json').name")
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          echo "$NAME@$VERSION at $SHA (trigger: $TRIGGER)"
+
+          if [ "$TRIGGER" = "workflow_dispatch" ]; then
+            PASSED=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
+              --commit "$SHA" --event push --status success \
+              --json databaseId --jq 'length')
+            if [ "$PASSED" = "0" ]; then
+              echo "::error::CI has not passed on $SHA; refusing to release it."
+              exit 1
+            fi
+          fi
+
+          # A version npm does not have is an E404. Anything else (network,
+          # registry outage) must fail the run rather than read as unpublished.
+          if OUT=$(npm view "$NAME@$VERSION" version 2>&1); then
+            PUBLISH=false
+            echo "$NAME@$VERSION is already on npm."
+          elif printf '%s' "$OUT" | grep -q 'E404'; then
+            PUBLISH=true
+            echo "$NAME@$VERSION is not on npm yet."
+          else
+            printf '%s\n' "$OUT"
+            echo "::error::Could not ask npm whether $NAME@$VERSION exists."
+            exit 1
+          fi
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            RELEASE=false
+            echo "Release $TAG already exists."
+          else
+            RELEASE=true
+            echo "Release $TAG does not exist yet."
+          fi
+
+          {
+            echo "publish=$PUBLISH"
+            echo "release=$RELEASE"
+            echo "sha=$SHA"
+            echo "version=$VERSION"
+          } >> "$GITHUB_OUTPUT"
+
+  publish:
+    needs: detect
+    if: needs.detect.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # id-token: write lets npm authenticate via OIDC and attach provenance (a
+    # signed link from the tarball back to this run).
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.detect.outputs.sha }}
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .nvmrc
           cache: npm
           registry-url: https://registry.npmjs.org
       - run: npm ci
-      # Final gate before shipping — full suite incl. the package-export smoke
-      # tests. (similarity:check self-skips without a Rust toolchain.)
-      - run: npm run dev-workflow
-        env:
-          RUN_SMOKE_TESTS: '1'
-      # prepublishOnly builds dist/. With trusted publishing, npm authenticates
-      # via OIDC (no token) and generates provenance automatically; the flag is
-      # explicit for clarity.
+      # The full gate already ran in CI on this exact commit, so it is not
+      # repeated here. prepublishOnly builds dist/ before the tarball is packed.
       - run: npm publish --provenance --access public
+
+  github-release:
+    needs: [detect, publish]
+    # Runs when publish succeeded or had nothing to do, never after it failed:
+    # a Release must not exist for a version npm does not have.
+    if: >-
+      always() &&
+      needs.detect.result == 'success' &&
+      needs.detect.outputs.release == 'true' &&
+      (needs.publish.result == 'success' || needs.publish.result == 'skipped')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.detect.outputs.sha }}
+          TAG: v${{ needs.detect.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --target "$SHA" --title "$TAG" --generate-notes --latest
